@@ -6,6 +6,15 @@ export interface UserProfile {
   xp: number;
   avatarId: string;
   badges: string[];
+  accessibility: AccessibilitySettings;
+}
+
+export interface AccessibilitySettings {
+  inputMode: 'camera' | 'voice' | 'manual';
+  reducedMotion: boolean;
+  avoidEyeContact: boolean;
+  captionsEnabled: boolean;
+  speechRate: 'normal' | 'slow';
 }
 
 export enum AppView {
@@ -15,7 +24,8 @@ export enum AppView {
   AVATAR_STUDIO = 'AVATAR_STUDIO',
   PRESENTATION = 'PRESENTATION',
   BRAIN_BUILDER = 'BRAIN_BUILDER',
-  CLASSROOM = 'CLASSROOM'
+  CLASSROOM = 'CLASSROOM',
+  ASSESSMENT = 'ASSESSMENT'
 }
 
 export type AvatarEmotion = 'neutral' | 'happy' | 'sad' | 'thinking' | 'surprised' | 'focused';
@@ -153,4 +163,31 @@ export interface ChatMessage {
   content: string;
   type: 'text' | 'emoji' | 'system';
   timestamp: number;
+}
+
+// --- Assessment Types ---
+
+export interface RubricScore {
+  clarity: number; // 1-5
+  logic: number; // 1-5
+  confidence: number; // 1-5
+  total: number;
+}
+
+export interface Feedback {
+  id: string;
+  teacherName: string;
+  avatarConfig: AvatarConfig;
+  text: string;
+  timestamp: number;
+}
+
+export interface Submission {
+  id: string;
+  missionTitle: string;
+  codeSnapshot: string;
+  date: number;
+  status: 'submitted' | 'graded';
+  rubric?: RubricScore;
+  feedback?: Feedback;
 }

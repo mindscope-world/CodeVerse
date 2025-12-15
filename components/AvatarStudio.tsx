@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { AvatarConfig, UserProfile, TutorPersonality } from '../types';
 import { AVATAR_OPTIONS, TUTOR_PROMPTS } from '../constants';
 import AvatarInterface from './AvatarInterface';
-import { User, Palette, Shirt, Smile, Box, Mic2, Gamepad2, Glasses, Leaf } from 'lucide-react';
+import { User, Palette, Shirt, Smile, Box, Mic2, Gamepad2, Glasses, Leaf, Accessibility, EyeOff, Volume2, Video, Keyboard, ZapOff } from 'lucide-react';
 
 interface AvatarStudioProps {
   config: AvatarConfig;
@@ -13,10 +13,14 @@ interface AvatarStudioProps {
 }
 
 const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, user, setUser }) => {
-  const [activeTab, setActiveTab] = useState<'base' | 'face' | 'hair' | 'gear' | 'personality'>('base');
+  const [activeTab, setActiveTab] = useState<'base' | 'face' | 'hair' | 'gear' | 'personality' | 'accessibility'>('base');
 
   const updateConfig = (key: keyof AvatarConfig, value: string) => {
     setConfig({ ...config, [key]: value });
+  };
+  
+  const updateAccessibility = (key: keyof UserProfile['accessibility'], value: any) => {
+      setUser({ ...user, accessibility: { ...user.accessibility, [key]: value } });
   };
 
   const ColorButton = ({ color, selected, onClick }: { color: string, selected: boolean, onClick: () => void }) => (
@@ -71,7 +75,11 @@ const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, user, se
 
              <div className="aspect-square bg-slate-900 rounded-3xl overflow-hidden relative shadow-inner">
                  <div className="absolute inset-0 p-2">
-                     <AvatarInterface config={config} emotion='happy' />
+                     <AvatarInterface 
+                        config={config} 
+                        emotion='happy' 
+                        accessibility={user.accessibility}
+                     />
                  </div>
              </div>
              
@@ -103,6 +111,9 @@ const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, user, se
               </button>
               <button onClick={() => setActiveTab('personality')} className={`flex-1 min-w-[100px] py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'personality' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`}>
                   <Mic2 size={18} /> Personality
+              </button>
+              <button onClick={() => setActiveTab('accessibility')} className={`flex-1 min-w-[100px] py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'accessibility' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`}>
+                  <Accessibility size={18} /> Access
               </button>
           </div>
 
@@ -274,6 +285,95 @@ const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, user, se
                               </p>
                           </div>
                        </div>
+                  </div>
+              )}
+
+              {activeTab === 'accessibility' && (
+                  <div className="space-y-8">
+                      <div>
+                          <h4 className="font-bold text-slate-800 mb-4">Avatar Input Control</h4>
+                          <div className="grid grid-cols-3 gap-3">
+                              <OptionButton label="Camera" selected={user.accessibility.inputMode === 'camera'} onClick={() => updateAccessibility('inputMode', 'camera')}>
+                                  <Video size={24} />
+                              </OptionButton>
+                              <OptionButton label="Voice Only" selected={user.accessibility.inputMode === 'voice'} onClick={() => updateAccessibility('inputMode', 'voice')}>
+                                  <Volume2 size={24} />
+                              </OptionButton>
+                              <OptionButton label="Manual Keys" selected={user.accessibility.inputMode === 'manual'} onClick={() => updateAccessibility('inputMode', 'manual')}>
+                                  <Keyboard size={24} />
+                              </OptionButton>
+                          </div>
+                          <p className="text-xs text-slate-400 mt-2 ml-1">
+                              {user.accessibility.inputMode === 'camera' && "Avatar mimics your face using the camera."}
+                              {user.accessibility.inputMode === 'voice' && "Avatar mouth moves when you speak. No video sent."}
+                              {user.accessibility.inputMode === 'manual' && "Control emotions using number keys 1-6."}
+                          </p>
+                      </div>
+
+                      <div className="bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-4">
+                          <h4 className="font-bold text-slate-800 mb-2">Inclusion Settings</h4>
+                          
+                          <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                  <div className="bg-white p-2 rounded-lg text-slate-400"><ZapOff size={20}/></div>
+                                  <div>
+                                      <div className="font-bold text-sm text-slate-700">Reduced Motion</div>
+                                      <div className="text-[10px] text-slate-400">Disable bouncy animations & smooth transitions</div>
+                                  </div>
+                              </div>
+                              <button 
+                                  onClick={() => updateAccessibility('reducedMotion', !user.accessibility.reducedMotion)}
+                                  className={`w-12 h-6 rounded-full relative transition-colors ${user.accessibility.reducedMotion ? 'bg-indigo-500' : 'bg-slate-200'}`}
+                              >
+                                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${user.accessibility.reducedMotion ? 'left-7' : 'left-1'}`}></div>
+                              </button>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                  <div className="bg-white p-2 rounded-lg text-slate-400"><EyeOff size={20}/></div>
+                                  <div>
+                                      <div className="font-bold text-sm text-slate-700">Avoid Eye Contact</div>
+                                      <div className="text-[10px] text-slate-400">Avatar will not look directly at you</div>
+                                  </div>
+                              </div>
+                              <button 
+                                  onClick={() => updateAccessibility('avoidEyeContact', !user.accessibility.avoidEyeContact)}
+                                  className={`w-12 h-6 rounded-full relative transition-colors ${user.accessibility.avoidEyeContact ? 'bg-indigo-500' : 'bg-slate-200'}`}
+                              >
+                                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${user.accessibility.avoidEyeContact ? 'left-7' : 'left-1'}`}></div>
+                              </button>
+                          </div>
+                      </div>
+
+                      <div className="bg-slate-50 border border-slate-100 rounded-2xl p-6">
+                           <h4 className="font-bold text-slate-800 mb-4">Speech & Language</h4>
+                           
+                           <div className="flex gap-2 mb-4">
+                               <button 
+                                  onClick={() => updateAccessibility('speechRate', 'normal')}
+                                  className={`flex-1 py-2 rounded-lg text-xs font-bold ${user.accessibility.speechRate === 'normal' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}
+                               >
+                                   Normal Speed
+                               </button>
+                               <button 
+                                  onClick={() => updateAccessibility('speechRate', 'slow')}
+                                  className={`flex-1 py-2 rounded-lg text-xs font-bold ${user.accessibility.speechRate === 'slow' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}
+                               >
+                                   Slow Mode (0.85x)
+                               </button>
+                           </div>
+
+                           <div className="flex items-center justify-between">
+                                <span className="text-sm font-bold text-slate-600">Live Captions</span>
+                                <button 
+                                  onClick={() => updateAccessibility('captionsEnabled', !user.accessibility.captionsEnabled)}
+                                  className={`w-12 h-6 rounded-full relative transition-colors ${user.accessibility.captionsEnabled ? 'bg-green-500' : 'bg-slate-200'}`}
+                              >
+                                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${user.accessibility.captionsEnabled ? 'left-7' : 'left-1'}`}></div>
+                              </button>
+                           </div>
+                      </div>
                   </div>
               )}
 

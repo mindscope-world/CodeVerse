@@ -94,6 +94,7 @@ export type LiveConfig = {
   onClose: () => void;
   onCaption?: (text: string, isUser: boolean, turnComplete: boolean) => void;
   systemInstruction?: string;
+  speechRate?: 'normal' | 'slow';
 };
 
 export class GeminiLiveClient {
@@ -171,6 +172,17 @@ export class GeminiLiveClient {
             
             const source = outputAudioContext.createBufferSource();
             source.buffer = audioBuffer;
+            // Apply Slow Speech if requested (pitch preservative approach would require complex DSP,
+            // standard playbackRate affects pitch, but often acceptable for accessibility "Slow" mode
+            // or we accept pitch drop as tradeoff for simplicity without external libs).
+            // NOTE: Changing playbackRate changes pitch. 
+            // For a tutor, slower and deeper might be okay, but ideally we'd use a different voiceConfig.
+            // Since we can't easily time-stretch without pitch shift natively in Web Audio without libraries,
+            // we will apply slight rate reduction.
+            if (config.speechRate === 'slow') {
+                source.playbackRate.value = 0.85; 
+            }
+            
             source.connect(outputNode);
             source.start(nextStartTime);
             
@@ -181,7 +193,9 @@ export class GeminiLiveClient {
             const avg = sum / (rawData.length/10);
             config.onAudioData(avg * 5); 
 
-            nextStartTime += audioBuffer.duration;
+            // Calculate duration based on rate
+            const duration = audioBuffer.duration / source.playbackRate.value;
+            nextStartTime += duration;
           }
         },
         onclose: () => {

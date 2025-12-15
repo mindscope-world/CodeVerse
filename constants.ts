@@ -7,7 +7,14 @@ export const INITIAL_PROFILE: UserProfile = {
   level: 3,
   xp: 1250,
   avatarId: "robot_1",
-  badges: ["Loop Master", "Bug Hunter"]
+  badges: ["Loop Master", "Bug Hunter"],
+  accessibility: {
+    inputMode: 'camera',
+    reducedMotion: false,
+    avoidEyeContact: false,
+    captionsEnabled: true,
+    speechRate: 'normal'
+  }
 };
 
 export const DEFAULT_AVATAR_CONFIG: AvatarConfig = {

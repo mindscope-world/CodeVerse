@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Layout, BookOpen, User, Trophy, Grid, Disc, StopCircle, BrainCircuit, Users } from 'lucide-react';
+import { Layout, BookOpen, User, Trophy, Grid, Disc, StopCircle, BrainCircuit, Users, ClipboardCheck } from 'lucide-react';
 import AvatarInterface from './components/AvatarInterface';
 import LogicBuilder from './components/LogicBuilder';
 import CodeLab from './components/CodeLab';
@@ -8,7 +8,8 @@ import AvatarStudio from './components/AvatarStudio';
 import PresentationMode from './components/PresentationMode';
 import BrainBuilder from './components/BrainBuilder';
 import ClassroomMode from './components/ClassroomMode';
-import { AppView, UserProfile, AvatarConfig, AvatarEmotion, BlockInstance, IntelligenceModel, StudentContext } from './types';
+import AssessmentMode from './components/AssessmentMode';
+import { AppView, UserProfile, AvatarConfig, AvatarEmotion, BlockInstance, IntelligenceModel, StudentContext, Submission } from './types';
 import { INITIAL_PROFILE, LESSONS, DEFAULT_AVATAR_CONFIG } from './constants';
 
 const App: React.FC = () => {
@@ -17,6 +18,25 @@ const App: React.FC = () => {
   // Lifted State for Content
   const [program, setProgram] = useState<BlockInstance[]>([]);
   const [code, setCode] = useState<string>("# Start typing your Python code here...\n\nprint('Hello World')");
+  
+  // Assessment State
+  const [submissions, setSubmissions] = useState<Submission[]>([
+      {
+          id: 'demo-1',
+          missionTitle: 'Hello World Mission',
+          codeSnapshot: "print('Hello World')",
+          date: Date.now() - 86400000,
+          status: 'graded',
+          rubric: { clarity: 5, logic: 5, confidence: 4, total: 14 },
+          feedback: {
+              id: 'fb-1',
+              teacherName: 'Ms. Sarah',
+              avatarConfig: { ...DEFAULT_AVATAR_CONFIG, style: 'human', hairStyle: 'bob', personality: 'friendly' },
+              text: "Fantastic start! Your explanation was super clear and your avatar looked very confident. Keep it up!",
+              timestamp: Date.now()
+          }
+      }
+  ]);
   
   // Context Monitoring State
   const [studentContext, setStudentContext] = useState<StudentContext>({
@@ -86,6 +106,7 @@ const App: React.FC = () => {
       if (currentView === AppView.LOGIC_BUILDER) task = "Building Logic Blocks";
       if (currentView === AppView.CODE_LAB) task = "Writing Python Code";
       if (currentView === AppView.CLASSROOM) task = "In Classroom";
+      if (currentView === AppView.ASSESSMENT) task = "Submitting Assignment";
       
       setStudentContext(prev => ({
           ...prev,
@@ -121,6 +142,27 @@ const App: React.FC = () => {
       } else {
           setIsRecording(true);
       }
+  };
+
+  const handleAssessmentSubmit = (sub: Submission) => {
+      setSubmissions(prev => [sub, ...prev]);
+      // Mock Grading Process
+      setTimeout(() => {
+          setSubmissions(prev => prev.map(s => 
+              s.id === sub.id ? {
+                  ...s,
+                  status: 'graded',
+                  rubric: { clarity: 4, logic: 5, confidence: 5, total: 14 },
+                  feedback: {
+                      id: 'new-fb',
+                      teacherName: "Ms. Sarah",
+                      avatarConfig: { ...DEFAULT_AVATAR_CONFIG, style: 'human', hairStyle: 'bob', personality: 'friendly' },
+                      text: "Great use of the loop logic! Your code is efficient. Maybe try adding a variable for the jump height next time?",
+                      timestamp: Date.now()
+                  }
+              } : s
+          ));
+      }, 5000);
   };
 
   const formatTime = (seconds: number) => {
@@ -164,6 +206,7 @@ const App: React.FC = () => {
             <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-100/80 backdrop-blur p-1.5 rounded-full border border-slate-200 shadow-inner max-w-[60%] overflow-x-auto no-scrollbar">
                 <NavButton view={AppView.DASHBOARD} icon={Grid} label="Home" />
                 <NavButton view={AppView.CLASSROOM} icon={Users} label="Class" />
+                <NavButton view={AppView.ASSESSMENT} icon={ClipboardCheck} label="Tasks" />
                 <NavButton view={AppView.BRAIN_BUILDER} icon={BrainCircuit} label="AI Core" />
                 <NavButton view={AppView.LOGIC_BUILDER} icon={Layout} label="Logic" />
                 <NavButton view={AppView.CODE_LAB} icon={BookOpen} label="Code" />
@@ -280,6 +323,12 @@ const App: React.FC = () => {
                             <p className="text-slate-500">Configure your avatar's intelligence and priorities.</p>
                             </>
                         )}
+                        {currentView === AppView.ASSESSMENT && (
+                            <>
+                            <h2 className="text-2xl font-bold text-slate-800">Assessment Center 📊</h2>
+                            <p className="text-slate-500">Submit assignments and view teacher feedback.</p>
+                            </>
+                        )}
                     </div>
                 </div>
              )}
@@ -374,6 +423,18 @@ const App: React.FC = () => {
                             <ClassroomMode 
                                 user={user}
                                 userAvatarConfig={avatarConfig}
+                            />
+                        </div>
+                    )}
+                    
+                    {currentView === AppView.ASSESSMENT && (
+                        <div className="h-full">
+                            <AssessmentMode 
+                                user={user}
+                                code={code}
+                                avatarConfig={avatarConfig}
+                                onSubmit={handleAssessmentSubmit}
+                                submissions={submissions}
                             />
                         </div>
                     )}

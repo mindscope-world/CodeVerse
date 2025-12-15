@@ -1,8 +1,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import { MicOff, Video, VideoOff, Sparkles, BrainCircuit, Check, Loader2, Disc, MessageSquare, Mic, Send, AlertCircle } from 'lucide-react';
+import { MicOff, Video, VideoOff, Sparkles, BrainCircuit, Check, Loader2, Disc, MessageSquare, Mic, Send, AlertCircle, Keyboard, Volume2 } from 'lucide-react';
 import { GeminiLiveClient } from '../services/geminiService';
-import { AvatarConfig, AvatarEmotion, StudentContext } from '../types';
+import { AvatarConfig, AvatarEmotion, StudentContext, AccessibilitySettings } from '../types';
 import { DEFAULT_AVATAR_CONFIG, AVATAR_OPTIONS, TUTOR_PROMPTS } from '../constants';
 import { FilesetResolver, FaceLandmarker } from "@mediapipe/tasks-vision";
 
@@ -11,6 +11,8 @@ interface AvatarInterfaceProps {
   emotion?: AvatarEmotion; // External override emotion
   isRecording?: boolean; 
   studentContext?: StudentContext; // Context-aware data
+  accessibility?: AccessibilitySettings; // New prop
+  simulatedTalking?: boolean; // New prop for teacher avatar animation
 }
 
 // Internal state for the visual engine
@@ -25,7 +27,14 @@ interface ExpressionState {
   detectedEmotion: AvatarEmotion | 'neutral';
 }
 
-const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVATAR_CONFIG, emotion: overrideEmotion = 'neutral', isRecording = false, studentContext }) => {
+const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ 
+    config = DEFAULT_AVATAR_CONFIG, 
+    emotion: overrideEmotion = 'neutral', 
+    isRecording = false, 
+    studentContext,
+    accessibility,
+    simulatedTalking = false
+}) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isLive, setIsLive] = useState(false);
@@ -44,6 +53,9 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
   const [caption, setCaption] = useState("");
   const [isTurnComplete, setIsTurnComplete] = useState(false);
   
+  // Voice Input Mode State
+  const [voiceVolume, setVoiceVolume] = useState(0);
+  
   // Refs
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
   const requestRef = useRef<number>(0);
@@ -51,14 +63,13 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
   const liveClient = useRef<any>(null);
   const captionResetTimer = useRef<number | null>(null);
   const emotionHistory = useRef<string[]>([]);
+  const voiceContextRef = useRef<AudioContext | null>(null);
 
   // --- 0. Monitor Student State & Emotions ---
   useEffect(() => {
     // If student is idle, trigger gentle visual nudge
     if (studentContext?.isIdle && !isLive && !aiSpeaking) {
-        // Subtle wave or blink animation could go here
-        // For now, we simulate by overriding emotion temporarily
-        // This is handled by the parent mostly, but we can do local effects
+        // Subtle wave or blink animation handled by CSS
     }
 
     // Emotion Response Loop (Every 2s)
@@ -74,7 +85,6 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
         
         // If frustrated and Live is connected, inform AI (Throttle this)
         if (recentNegatives >= 4 && isLive && liveClient.current && !aiSpeaking) {
-             // Only send if we haven't sent recently (simplified logic)
              if (Math.random() > 0.8) { 
                  liveClient.current.sendText("[SYSTEM: Student facial expression indicates confusion or frustration. Offer encouragement.]");
                  emotionHistory.current = []; // Reset
@@ -93,7 +103,9 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
   }, [studentContext?.recentError]);
 
 
-  // --- 1. Initialize Computer Vision (MediaPipe) ---
+  // --- 1. Initialize Input Modes ---
+  
+  // CAMERA MODE Logic
   useEffect(() => {
     const loadModel = async () => {
       if (faceLandmarkerRef.current) return;
@@ -120,16 +132,79 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       }
     };
     
-    if (isCameraOn) {
+    // Only load if explicit camera mode and toggle is on
+    if (isCameraOn && (!accessibility || accessibility.inputMode === 'camera')) {
       loadModel();
     }
-  }, [isCameraOn]);
+  }, [isCameraOn, accessibility?.inputMode]);
 
-  // --- 2. Camera & Tracking Loop ---
+  // VOICE MODE Logic
+  useEffect(() => {
+      if (accessibility?.inputMode === 'voice' && isCameraOn) {
+          // Init Simple Audio Analyser
+          const initVoice = async () => {
+              try {
+                  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                  const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                  voiceContextRef.current = ctx;
+                  const source = ctx.createMediaStreamSource(stream);
+                  const analyser = ctx.createAnalyser();
+                  analyser.fftSize = 256;
+                  source.connect(analyser);
+                  
+                  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                  
+                  const checkVolume = () => {
+                      if (!isCameraOn) return;
+                      analyser.getByteFrequencyData(dataArray);
+                      let sum = 0;
+                      for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
+                      const avg = sum / dataArray.length;
+                      setVoiceVolume(Math.min(avg / 50, 1)); // Normalize roughly
+                      requestRef.current = requestAnimationFrame(checkVolume);
+                  };
+                  checkVolume();
+              } catch(e) {
+                  console.error("Voice mode error", e);
+              }
+          };
+          initVoice();
+      }
+      return () => {
+          if (voiceContextRef.current) {
+              voiceContextRef.current.close();
+              voiceContextRef.current = null;
+          }
+      }
+  }, [accessibility?.inputMode, isCameraOn]);
+
+  // MANUAL MODE Logic (Keyboard)
+  useEffect(() => {
+      if (accessibility?.inputMode === 'manual' && isCameraOn) {
+          const handleKey = (e: KeyboardEvent) => {
+              const map: Record<string, AvatarEmotion> = {
+                  '1': 'happy', '2': 'sad', '3': 'surprised', '4': 'thinking', '5': 'focused', '6': 'neutral'
+              };
+              if (map[e.key]) {
+                  setExpr(prev => ({ ...prev, detectedEmotion: map[e.key] }));
+              }
+          };
+          window.addEventListener('keydown', handleKey);
+          return () => window.removeEventListener('keydown', handleKey);
+      }
+  }, [accessibility?.inputMode, isCameraOn]);
+
+
+  // --- 2. Camera Tracking Loop ---
   useEffect(() => {
     let stream: MediaStream | null = null;
 
     const startCamera = async () => {
+      // If not camera mode, don't start video stream
+      if (accessibility?.inputMode !== 'camera') {
+          return;
+      }
+
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 }, audio: false });
         if (videoRef.current) {
@@ -141,7 +216,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       }
     };
 
-    if (isCameraOn) {
+    if (isCameraOn && accessibility?.inputMode === 'camera') {
       startCamera();
       requestRef.current = requestAnimationFrame(predictWebcam);
     } else {
@@ -153,7 +228,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       if (stream) stream.getTracks().forEach(t => t.stop());
       cancelAnimationFrame(requestRef.current);
     };
-  }, [isCameraOn]);
+  }, [isCameraOn, accessibility?.inputMode]);
 
   const predictWebcam = () => {
     const video = videoRef.current;
@@ -172,6 +247,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
               
               const getShape = (name: string) => shapes.find(s => s.categoryName === name)?.score || 0;
 
+              // Extract values
               const jawOpen = getShape('jawOpen');
               const smileLeft = getShape('mouthSmileLeft');
               const smileRight = getShape('mouthSmileRight');
@@ -183,7 +259,8 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
               const eyeLookUp = getShape('eyeLookUpLeft');
               const eyeLookDown = getShape('eyeLookDownLeft');
 
-              const alpha = 0.2; 
+              // Apply smoothing alpha
+              const alpha = accessibility?.reducedMotion ? 0.05 : 0.2; 
               
               setExpr(prev => {
                 const targetMouth = jawOpen;
@@ -244,7 +321,6 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       setCaption("");
       setIsTurnComplete(false);
       
-      // Construct Context-Aware System Instruction
       const personalityPrompt = TUTOR_PROMPTS[config.personality] || TUTOR_PROMPTS['friendly'];
       const contextPrompt = studentContext ? `
         Current Task: ${studentContext.currentTask}
@@ -258,8 +334,11 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       try {
         const connection = await client.connect({
             systemInstruction: fullInstruction,
+            speechRate: accessibility?.speechRate, // Pass speech rate
             onAudioData: (level) => setAiSpeaking(level > 0.05),
             onCaption: (text, isUser, turnComplete) => {
+                if (accessibility && !accessibility.captionsEnabled) return; // Respect caption setting
+                
                 if (turnComplete) {
                     setIsTurnComplete(true);
                     if (captionResetTimer.current) clearTimeout(captionResetTimer.current);
@@ -283,13 +362,42 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
     }
   };
 
-  // --- 4. Render Helpers (Same as before) ---
-  const currentEmotion = isCameraOn ? expr.detectedEmotion : overrideEmotion;
+  // --- 4. Render Helpers ---
+  
+  // Calculate final visual state based on mode
+  const currentEmotion = isCameraOn && accessibility?.inputMode === 'camera' 
+        ? expr.detectedEmotion 
+        : isCameraOn && accessibility?.inputMode === 'manual'
+        ? expr.detectedEmotion
+        : overrideEmotion;
+
   const getSimulatedExpr = () => {
-      // Override idle
+      // If Teacher Feedback (Simulated Talking)
+      if (simulatedTalking) {
+          const talk = Math.abs(Math.sin(Date.now() / 150)) * 0.5; // Fast sine wave for talk
+          return { mouth: talk, brow: 0.2, tilt: Math.sin(Date.now() / 1000) * 3 };
+      }
+
+      // If Voice Mode, mouth opens with volume
+      if (accessibility?.inputMode === 'voice' && isCameraOn) {
+          return { mouth: voiceVolume, brow: 0, tilt: 0 };
+      }
+
+      // If Manual Mode, expression logic handled by state but mouth/head static
+      if (accessibility?.inputMode === 'manual' && isCameraOn) {
+          // Add some fake movement if not reduced motion
+          const idle = accessibility?.reducedMotion ? 0 : Math.sin(Date.now() / 1000) * 2;
+          // Emotion mapping to face shape
+          let b = 0, m = 0;
+          if (expr.detectedEmotion === 'happy') { m = 0.2; b = 0.2; }
+          if (expr.detectedEmotion === 'sad') { m = 0; b = -0.3; }
+          if (expr.detectedEmotion === 'surprised') { m = 0.4; b = 0.6; }
+          return { mouth: m, brow: b, tilt: idle };
+      }
+
+      // Fallback / AI Override / Idle
       if (studentContext?.isIdle && !isLive && !aiSpeaking && overrideEmotion === 'neutral') {
-          // Subtle idle sway animation handled by CSS mostly, but visual expression:
-          return { mouth: 0, brow: 0.1, tilt: Math.sin(Date.now() / 1000) * 5 };
+          return { mouth: 0, brow: 0.1, tilt: accessibility?.reducedMotion ? 0 : Math.sin(Date.now() / 1000) * 5 };
       }
 
       switch(overrideEmotion) {
@@ -303,13 +411,19 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
   };
 
   const sim = getSimulatedExpr();
-  const activeMouth = isCameraOn ? expr.mouthOpen : sim.mouth;
-  const activeBrow = isCameraOn ? expr.eyebrowLift : sim.brow;
-  const activeTilt = isCameraOn ? expr.headTilt : sim.tilt;
-  const activeHeadX = isCameraOn ? expr.headX : 0;
-  const activeHeadY = isCameraOn ? expr.headY : 0;
-  const activeEyeX = isCameraOn ? expr.eyeX : 0;
-  const activeEyeY = isCameraOn ? expr.eyeY : 0;
+  
+  // Select active values based on mode
+  const isTracking = isCameraOn && accessibility?.inputMode === 'camera';
+  
+  const activeMouth = isTracking ? expr.mouthOpen : sim.mouth;
+  const activeBrow = isTracking ? expr.eyebrowLift : sim.brow;
+  const activeTilt = isTracking ? expr.headTilt : sim.tilt;
+  const activeHeadX = isTracking ? expr.headX : 0;
+  const activeHeadY = isTracking ? expr.headY : 0;
+  
+  // Eye Contact Logic: If avoided, force eyes to look down-left
+  const activeEyeX = accessibility?.avoidEyeContact ? -0.3 : (isTracking ? expr.eyeX : 0);
+  const activeEyeY = accessibility?.avoidEyeContact ? 0.3 : (isTracking ? expr.eyeY : 0);
 
   const getSkinColor = () => AVATAR_OPTIONS.skinTones.find(s => s.id === config.skinTone)?.value || '#fce5d4';
   const getHairColor = () => AVATAR_OPTIONS.hairColors.find(s => s.id === config.hairColor)?.value || '#5d4037';
@@ -323,7 +437,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       const common = {
           backgroundColor: config.style === 'human' ? getHairColor() : undefined,
           className: config.style === 'human' ? '' : 'bg-slate-800',
-          transition: 'transform 0.1s ease-out'
+          transition: accessibility?.reducedMotion ? 'none' : 'transform 0.1s ease-out'
       };
       return {
           left: { ...common, transform: `translateY(${liftPx}px) rotate(${rotateDeg}deg)` },
@@ -348,7 +462,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
         borderBottom: currentEmotion === 'happy' && activeMouth < 0.1 ? `4px solid ${bg}` : 'none',
         borderTop: borderTop,
         borderColor: bg,
-        transition: 'all 0.1s ease-out',
+        transition: accessibility?.reducedMotion ? 'none' : 'all 0.1s ease-out',
         position: 'absolute' as const,
         bottom: '25px',
         left: '50%',
@@ -414,8 +528,8 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
         {config.hairStyle === 'bob' && <div className="absolute top-8 w-36 h-28 rounded-b-[3rem] z-0" style={{ backgroundColor: getHairColor() }}></div>}
         {config.hairStyle === 'pigtails' && (
             <>
-                <div className="absolute top-10 -left-6 w-16 h-24 rounded-full z-0 origin-top-right animate-bounce-slow" style={{ backgroundColor: getHairColor() }}></div>
-                <div className="absolute top-10 -right-6 w-16 h-24 rounded-full z-0 origin-top-left animate-bounce-slow" style={{ backgroundColor: getHairColor() }}></div>
+                <div className={`absolute top-10 -left-6 w-16 h-24 rounded-full z-0 origin-top-right ${accessibility?.reducedMotion ? '' : 'animate-bounce-slow'}`} style={{ backgroundColor: getHairColor() }}></div>
+                <div className={`absolute top-10 -right-6 w-16 h-24 rounded-full z-0 origin-top-left ${accessibility?.reducedMotion ? '' : 'animate-bounce-slow'}`} style={{ backgroundColor: getHairColor() }}></div>
             </>
         )}
         {/* Body */}
@@ -465,11 +579,13 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       {/* Header */}
       <div className="flex justify-between items-center z-10 px-1 shrink-0">
         <h3 className="text-sm font-bold text-sky-800 flex items-center gap-2">
-            My Avatar
+            {!simulatedTalking ? "My Avatar" : "Teacher Avatar"}
             {isCameraOn && !modelLoading && <span className="flex h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>}
             {isRecording && <span className="flex items-center gap-1 text-red-500 text-xs animate-pulse font-black"><Disc size={12} fill="currentColor"/> REC</span>}
-            {studentContext?.isIdle && !isLive && <span className="flex items-center gap-1 text-amber-500 text-xs animate-bounce font-bold"><AlertCircle size={12}/> Idle</span>}
+            {studentContext?.isIdle && !isLive && !simulatedTalking && <span className={`flex items-center gap-1 text-amber-500 text-xs font-bold ${accessibility?.reducedMotion ? '' : 'animate-bounce'}`}><AlertCircle size={12}/> Idle</span>}
         </h3>
+        
+        {!simulatedTalking && (
         <div className="flex gap-2">
             <button
                 onClick={() => setShowTextInput(!showTextInput)}
@@ -486,6 +602,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
                 {modelLoading ? <Loader2 size={18} className="animate-spin" /> : isCameraOn ? <Video size={18} /> : <VideoOff size={18} />}
             </button>
         </div>
+        )}
       </div>
 
       <video ref={videoRef} autoPlay playsInline muted className="absolute opacity-0 pointer-events-none w-1 h-1" />
@@ -496,7 +613,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
              style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
         </div>
 
-        {!isCameraOn && (
+        {!isCameraOn && !simulatedTalking && (
              <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-6 text-center z-0">
                 <VideoOff size={32} className="mb-2 opacity-50" />
                 <span className="text-xs font-bold">Camera Off</span>
@@ -504,8 +621,8 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
              </div>
         )}
 
-        {aiSpeaking && (
-            <div className="absolute top-4 right-4 z-40 bg-white/90 backdrop-blur text-indigo-900 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2 animate-bounce">
+        {(aiSpeaking || simulatedTalking) && (
+            <div className={`absolute top-4 right-4 z-40 bg-white/90 backdrop-blur text-indigo-900 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2 ${accessibility?.reducedMotion ? '' : 'animate-bounce'}`}>
                 <BrainCircuit size={12} className="text-indigo-500" />
                 Speaking...
             </div>
@@ -526,7 +643,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
         )}
 
         <div 
-            className="absolute z-20 pointer-events-none transition-transform duration-75 ease-out flex items-center justify-center"
+            className={`absolute z-20 pointer-events-none flex items-center justify-center ${accessibility?.reducedMotion ? '' : 'transition-transform duration-75 ease-out'}`}
             style={{ 
                 transform: `translate(${activeHeadX}px, ${activeHeadY}px) rotate(${activeTilt}deg) scale(${isCameraOn ? 1 : 0.95})`,
             }}
@@ -535,6 +652,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
         </div>
 
         {/* Controls Overlay */}
+        {!simulatedTalking && (
         <div className="absolute bottom-4 left-0 right-0 flex justify-center z-30 pointer-events-auto gap-3">
              {showTextInput ? (
                  <div className="flex items-center gap-2 bg-white/90 p-1.5 rounded-full shadow-lg backdrop-blur mx-4 w-full max-w-xs animate-in slide-in-from-bottom-5">
@@ -581,14 +699,19 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
                 </button>
              )}
         </div>
+        )}
       </div>
       
-      <p className="text-center text-slate-500 text-xs shrink-0">
+      {!simulatedTalking && (
+      <p className="text-center text-slate-500 text-xs shrink-0 flex items-center justify-center gap-2">
          {isRecording ? "🔴 Recording explanation..." : 
           modelLoading ? "Initializing Vision Engine..." : 
-          !isCameraOn ? "Turn on camera to control avatar expression" : 
+          accessibility?.inputMode === 'voice' ? <><Volume2 size={12}/> Voice Mode Active</> :
+          accessibility?.inputMode === 'manual' ? <><Keyboard size={12}/> Manual Keys: 1-6</> :
+          !isCameraOn ? "Turn on camera to control avatar" : 
           "Processing on-device. Privacy protected."}
       </p>
+      )}
 
       <style>{`
         .clip-path-bangs { clip-path: polygon(0 0, 100% 0, 100% 60%, 70% 80%, 30% 80%, 0 60%); }

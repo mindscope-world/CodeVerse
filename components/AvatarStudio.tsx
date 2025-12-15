@@ -1,8 +1,9 @@
+
 import React, { useState } from 'react';
-import { AvatarConfig, UserProfile } from '../types';
-import { AVATAR_OPTIONS } from '../constants';
+import { AvatarConfig, UserProfile, TutorPersonality } from '../types';
+import { AVATAR_OPTIONS, TUTOR_PROMPTS } from '../constants';
 import AvatarInterface from './AvatarInterface';
-import { User, Palette, Shirt, Smile, Box } from 'lucide-react';
+import { User, Palette, Shirt, Smile, Box, Mic2, Gamepad2, Glasses, Leaf } from 'lucide-react';
 
 interface AvatarStudioProps {
   config: AvatarConfig;
@@ -12,7 +13,7 @@ interface AvatarStudioProps {
 }
 
 const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, user, setUser }) => {
-  const [activeTab, setActiveTab] = useState<'base' | 'face' | 'hair' | 'gear'>('base');
+  const [activeTab, setActiveTab] = useState<'base' | 'face' | 'hair' | 'gear' | 'personality'>('base');
 
   const updateConfig = (key: keyof AvatarConfig, value: string) => {
     setConfig({ ...config, [key]: value });
@@ -37,6 +38,16 @@ const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, user, se
           <span className="text-xs font-bold">{label}</span>
       </button>
   );
+
+  const getIcon = (name: string) => {
+      switch(name) {
+          case 'Smile': return <Smile size={24} />;
+          case 'Glasses': return <Glasses size={24} />;
+          case 'Gamepad2': return <Gamepad2 size={24} />;
+          case 'Leaf': return <Leaf size={24} />;
+          default: return <Smile size={24} />;
+      }
+  };
 
   return (
     <div className="h-full flex flex-col lg:flex-row gap-6">
@@ -63,6 +74,13 @@ const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, user, se
                      <AvatarInterface config={config} emotion='happy' />
                  </div>
              </div>
+             
+             <div className="mt-4 bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                 <h5 className="font-bold text-indigo-900 text-sm mb-1">Current Tutor Style</h5>
+                 <p className="text-xs text-indigo-700 leading-relaxed italic">
+                    "{TUTOR_PROMPTS[config.personality].split('\n')[0]}"
+                 </p>
+             </div>
           </div>
        </div>
 
@@ -70,18 +88,21 @@ const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, user, se
        <div className="flex-1 bg-white flex flex-col rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden">
           
           {/* Tabs */}
-          <div className="flex border-b border-slate-100 p-2 gap-2 bg-slate-50/50">
-              <button onClick={() => setActiveTab('base')} className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'base' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`}>
+          <div className="flex border-b border-slate-100 p-2 gap-2 bg-slate-50/50 overflow-x-auto">
+              <button onClick={() => setActiveTab('base')} className={`flex-1 min-w-[100px] py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'base' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`}>
                   <Box size={18} /> Model
               </button>
-              <button onClick={() => setActiveTab('face')} className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'face' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`} disabled={config.style === 'robot'}>
-                  <Smile size={18} /> Skin & Eyes
+              <button onClick={() => setActiveTab('face')} className={`flex-1 min-w-[100px] py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'face' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`} disabled={config.style === 'robot'}>
+                  <Smile size={18} /> Features
               </button>
-              <button onClick={() => setActiveTab('hair')} className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'hair' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`} disabled={config.style === 'robot'}>
+              <button onClick={() => setActiveTab('hair')} className={`flex-1 min-w-[100px] py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'hair' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`} disabled={config.style === 'robot'}>
                   <Palette size={18} /> Hair
               </button>
-              <button onClick={() => setActiveTab('gear')} className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'gear' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`}>
+              <button onClick={() => setActiveTab('gear')} className={`flex-1 min-w-[100px] py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'gear' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`}>
                   <Shirt size={18} /> Style
+              </button>
+              <button onClick={() => setActiveTab('personality')} className={`flex-1 min-w-[100px] py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'personality' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`}>
+                  <Mic2 size={18} /> Personality
               </button>
           </div>
 
@@ -213,6 +234,44 @@ const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, user, se
                                       <span className="text-xl font-bold text-slate-300">{a.id === 'none' ? '∅' : '+'}</span>
                                   </OptionButton>
                               ))}
+                          </div>
+                       </div>
+                  </div>
+              )}
+              
+              {activeTab === 'personality' && (
+                  <div className="space-y-8">
+                       <div>
+                          <h4 className="font-bold text-slate-800 mb-4">Choose AI Tutor Personality</h4>
+                          <div className="grid grid-cols-2 gap-4">
+                              {AVATAR_OPTIONS.personalities.map(p => (
+                                  <button 
+                                      key={p.id}
+                                      onClick={() => updateConfig('personality', p.id as any)}
+                                      className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-3 text-center transition-all ${
+                                          config.personality === p.id ? 'border-indigo-500 bg-indigo-50 text-indigo-900 shadow-md' : 'border-slate-100 text-slate-500 hover:bg-slate-50'
+                                      }`}
+                                  >
+                                      <div className={`p-3 rounded-full ${config.personality === p.id ? 'bg-indigo-200' : 'bg-slate-100'}`}>
+                                          {getIcon(p.icon)}
+                                      </div>
+                                      <div>
+                                          <div className="font-bold text-sm">{p.name}</div>
+                                          <div className="text-[10px] mt-1 opacity-70">
+                                              {p.id === 'friendly' ? 'Encouraging & Fun' : 
+                                               p.id === 'strict' ? 'Precise & Logical' :
+                                               p.id === 'playful' ? 'Chaotic & Silly' : 'Peaceful & Slow'}
+                                          </div>
+                                      </div>
+                                  </button>
+                              ))}
+                          </div>
+                          
+                          <div className="mt-6 bg-slate-50 border border-slate-100 rounded-xl p-4">
+                              <h5 className="font-bold text-slate-700 text-sm mb-2">Instructor Behavior</h5>
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                  {TUTOR_PROMPTS[config.personality]}
+                              </p>
                           </div>
                        </div>
                   </div>

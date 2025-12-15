@@ -1,29 +1,31 @@
+
 import React, { useEffect, useRef, useState } from 'react';
-import { MicOff, Video, VideoOff, Sparkles, BrainCircuit, Check, Loader2, Disc, MessageSquare, Mic, Send } from 'lucide-react';
+import { MicOff, Video, VideoOff, Sparkles, BrainCircuit, Check, Loader2, Disc, MessageSquare, Mic, Send, AlertCircle } from 'lucide-react';
 import { GeminiLiveClient } from '../services/geminiService';
-import { AvatarConfig, AvatarEmotion } from '../types';
-import { DEFAULT_AVATAR_CONFIG, AVATAR_OPTIONS } from '../constants';
+import { AvatarConfig, AvatarEmotion, StudentContext } from '../types';
+import { DEFAULT_AVATAR_CONFIG, AVATAR_OPTIONS, TUTOR_PROMPTS } from '../constants';
 import { FilesetResolver, FaceLandmarker } from "@mediapipe/tasks-vision";
 
 interface AvatarInterfaceProps {
   config?: AvatarConfig;
   emotion?: AvatarEmotion; // External override emotion
-  isRecording?: boolean; // NEW: Visual state for recording
+  isRecording?: boolean; 
+  studentContext?: StudentContext; // Context-aware data
 }
 
 // Internal state for the visual engine
 interface ExpressionState {
-  mouthOpen: number;     // 0.0 - 1.0
-  eyebrowLift: number;   // -1.0 (angry) to 1.0 (surprised)
-  eyeX: number;          // -1.0 (left) to 1.0 (right)
-  eyeY: number;          // -1.0 (up) to 1.0 (down)
-  headTilt: number;      // degrees
-  headX: number;         // pixels
-  headY: number;         // pixels
+  mouthOpen: number;     
+  eyebrowLift: number;   
+  eyeX: number;          
+  eyeY: number;          
+  headTilt: number;      
+  headX: number;         
+  headY: number;         
   detectedEmotion: AvatarEmotion | 'neutral';
 }
 
-const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVATAR_CONFIG, emotion: overrideEmotion = 'neutral', isRecording = false }) => {
+const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVATAR_CONFIG, emotion: overrideEmotion = 'neutral', isRecording = false, studentContext }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isLive, setIsLive] = useState(false);
@@ -48,6 +50,48 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
   const lastVideoTimeRef = useRef<number>(-1);
   const liveClient = useRef<any>(null);
   const captionResetTimer = useRef<number | null>(null);
+  const emotionHistory = useRef<string[]>([]);
+
+  // --- 0. Monitor Student State & Emotions ---
+  useEffect(() => {
+    // If student is idle, trigger gentle visual nudge
+    if (studentContext?.isIdle && !isLive && !aiSpeaking) {
+        // Subtle wave or blink animation could go here
+        // For now, we simulate by overriding emotion temporarily
+        // This is handled by the parent mostly, but we can do local effects
+    }
+
+    // Emotion Response Loop (Every 2s)
+    const emotionCheck = setInterval(() => {
+        if (!isCameraOn) return;
+        
+        // Add current emotion to history buffer
+        emotionHistory.current.push(expr.detectedEmotion);
+        if (emotionHistory.current.length > 5) emotionHistory.current.shift();
+
+        // Check for sustained frustration (sad/thinking/focused)
+        const recentNegatives = emotionHistory.current.filter(e => e === 'sad' || e === 'thinking').length;
+        
+        // If frustrated and Live is connected, inform AI (Throttle this)
+        if (recentNegatives >= 4 && isLive && liveClient.current && !aiSpeaking) {
+             // Only send if we haven't sent recently (simplified logic)
+             if (Math.random() > 0.8) { 
+                 liveClient.current.sendText("[SYSTEM: Student facial expression indicates confusion or frustration. Offer encouragement.]");
+                 emotionHistory.current = []; // Reset
+             }
+        }
+    }, 2000);
+
+    return () => clearInterval(emotionCheck);
+  }, [isCameraOn, isLive, expr.detectedEmotion, studentContext?.isIdle]);
+
+  // Respond to Errors via AI
+  useEffect(() => {
+      if (studentContext?.recentError && isLive && liveClient.current) {
+          liveClient.current.sendText(`[SYSTEM EVENT: Student code failed with error: "${studentContext.recentError}". Please explain the error simply and give a hint.]`);
+      }
+  }, [studentContext?.recentError]);
+
 
   // --- 1. Initialize Computer Vision (MediaPipe) ---
   useEffect(() => {
@@ -200,8 +244,20 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       setCaption("");
       setIsTurnComplete(false);
       
+      // Construct Context-Aware System Instruction
+      const personalityPrompt = TUTOR_PROMPTS[config.personality] || TUTOR_PROMPTS['friendly'];
+      const contextPrompt = studentContext ? `
+        Current Task: ${studentContext.currentTask}
+        Current Code/Blocks: ${studentContext.codeSnippet ? studentContext.codeSnippet.substring(0, 500) : "Empty"}
+        Recent Error: ${studentContext.recentError || "None"}
+        Student Status: ${studentContext.isIdle ? "Idle/Stuck" : "Active"}
+      ` : "";
+
+      const fullInstruction = `${personalityPrompt}\n\nCONTEXT:\n${contextPrompt}`;
+
       try {
         const connection = await client.connect({
+            systemInstruction: fullInstruction,
             onAudioData: (level) => setAiSpeaking(level > 0.05),
             onCaption: (text, isUser, turnComplete) => {
                 if (turnComplete) {
@@ -230,6 +286,12 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
   // --- 4. Render Helpers (Same as before) ---
   const currentEmotion = isCameraOn ? expr.detectedEmotion : overrideEmotion;
   const getSimulatedExpr = () => {
+      // Override idle
+      if (studentContext?.isIdle && !isLive && !aiSpeaking && overrideEmotion === 'neutral') {
+          // Subtle idle sway animation handled by CSS mostly, but visual expression:
+          return { mouth: 0, brow: 0.1, tilt: Math.sin(Date.now() / 1000) * 5 };
+      }
+
       switch(overrideEmotion) {
           case 'happy': return { mouth: 0.2, brow: 0.3, tilt: 5 };
           case 'sad': return { mouth: 0, brow: -0.3, tilt: -10 };
@@ -406,6 +468,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
             My Avatar
             {isCameraOn && !modelLoading && <span className="flex h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>}
             {isRecording && <span className="flex items-center gap-1 text-red-500 text-xs animate-pulse font-black"><Disc size={12} fill="currentColor"/> REC</span>}
+            {studentContext?.isIdle && !isLive && <span className="flex items-center gap-1 text-amber-500 text-xs animate-bounce font-bold"><AlertCircle size={12}/> Idle</span>}
         </h3>
         <div className="flex gap-2">
             <button
@@ -483,14 +546,18 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
                         className="flex-1 bg-transparent border-none text-xs px-2 focus:outline-none"
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') {
-                                // Simulate sending - in real app would send to Gemini text API
                                 setCaption(textInput);
                                 setTextInput("");
-                                setTimeout(() => {
-                                    setCaption("That's a great question! Let's break it down...");
-                                    setIsTurnComplete(true);
-                                    setTimeout(() => setIsTurnComplete(false), 3000);
-                                }, 1000);
+                                if (liveClient.current) {
+                                    liveClient.current.sendText(textInput);
+                                } else {
+                                    // Fallback simulation
+                                    setTimeout(() => {
+                                        setCaption("That's a great question! Connect Live for a real answer!");
+                                        setIsTurnComplete(true);
+                                        setTimeout(() => setIsTurnComplete(false), 3000);
+                                    }, 1000);
+                                }
                             }
                         }}
                      />

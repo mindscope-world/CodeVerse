@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 
 // Standard Content Generation
@@ -92,6 +93,7 @@ export type LiveConfig = {
   onAudioData: (amplitude: number) => void;
   onClose: () => void;
   onCaption?: (text: string, isUser: boolean, turnComplete: boolean) => void;
+  systemInstruction?: string;
 };
 
 export class GeminiLiveClient {
@@ -173,12 +175,11 @@ export class GeminiLiveClient {
             source.start(nextStartTime);
             
             // Simple visualization hook
-            // Analyze average amplitude for animation
             const rawData = audioBuffer.getChannelData(0);
             let sum = 0;
             for(let i=0; i<rawData.length; i+=10) { sum += Math.abs(rawData[i]); }
             const avg = sum / (rawData.length/10);
-            config.onAudioData(avg * 5); // Boost for visibility
+            config.onAudioData(avg * 5); 
 
             nextStartTime += audioBuffer.duration;
           }
@@ -194,11 +195,11 @@ export class GeminiLiveClient {
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } // Friendly voice
+          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } 
         },
         inputAudioTranscription: {},
         outputAudioTranscription: {},
-        systemInstruction: "You are 'CodeBot', a cheerful, encouraging, and funny programming tutor for children aged 8-12. Speak simply, use analogies, and be very enthusiastic about coding! Keep answers concise.",
+        systemInstruction: config.systemInstruction || "You are 'CodeBot', a cheerful, encouraging, and funny programming tutor for children aged 8-12. Speak simply, use analogies, and be very enthusiastic about coding! Keep answers concise.",
       }
     });
 
@@ -208,6 +209,13 @@ export class GeminiLiveClient {
             inputAudioContext.close();
             outputAudioContext.close();
             stream.getTracks().forEach(t => t.stop());
+        },
+        // Hook to send text updates if supported by library, else we rely on systemInstruction
+        sendText: (text: string) => {
+            // Note: Sending text in Live API is treated as user turn
+            sessionPromise.then(session => {
+                session.send({ parts: [{ text: text }] });
+            });
         }
     }
   }

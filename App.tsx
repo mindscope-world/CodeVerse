@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { Layout, BookOpen, User, Trophy, Grid, Disc, StopCircle, BrainCircuit } from 'lucide-react';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { Layout, BookOpen, User, Trophy, Grid, Disc, StopCircle, BrainCircuit, Users } from 'lucide-react';
 import AvatarInterface from './components/AvatarInterface';
 import LogicBuilder from './components/LogicBuilder';
 import CodeLab from './components/CodeLab';
 import AvatarStudio from './components/AvatarStudio';
 import PresentationMode from './components/PresentationMode';
-import BrainBuilder from './components/BrainBuilder'; // Imported
-import { AppView, UserProfile, AvatarConfig, AvatarEmotion, BlockInstance, IntelligenceModel } from './types';
+import BrainBuilder from './components/BrainBuilder';
+import ClassroomMode from './components/ClassroomMode';
+import { AppView, UserProfile, AvatarConfig, AvatarEmotion, BlockInstance, IntelligenceModel, StudentContext } from './types';
 import { INITIAL_PROFILE, LESSONS, DEFAULT_AVATAR_CONFIG } from './constants';
 
 const App: React.FC = () => {
@@ -16,6 +18,15 @@ const App: React.FC = () => {
   const [program, setProgram] = useState<BlockInstance[]>([]);
   const [code, setCode] = useState<string>("# Start typing your Python code here...\n\nprint('Hello World')");
   
+  // Context Monitoring State
+  const [studentContext, setStudentContext] = useState<StudentContext>({
+      currentTask: "Free Play",
+      codeSnippet: "",
+      recentError: undefined,
+      isIdle: false
+  });
+  const idleTimer = useRef<number | null>(null);
+
   // Intelligence Layer State
   const [brainModel, setBrainModel] = useState<IntelligenceModel>({
       kpiTree: [
@@ -46,6 +57,42 @@ const App: React.FC = () => {
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+
+  // --- Idle Detection Logic ---
+  const resetIdleTimer = () => {
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      setStudentContext(prev => ({ ...prev, isIdle: false }));
+      idleTimer.current = window.setTimeout(() => {
+          setStudentContext(prev => ({ ...prev, isIdle: true }));
+      }, 30000); // 30 seconds idle
+  };
+
+  useEffect(() => {
+      window.addEventListener('mousemove', resetIdleTimer);
+      window.addEventListener('keydown', resetIdleTimer);
+      window.addEventListener('click', resetIdleTimer);
+      resetIdleTimer(); // Init
+      return () => {
+          window.removeEventListener('mousemove', resetIdleTimer);
+          window.removeEventListener('keydown', resetIdleTimer);
+          window.removeEventListener('click', resetIdleTimer);
+          if (idleTimer.current) clearTimeout(idleTimer.current);
+      };
+  }, []);
+
+  // Update Context when code/view changes
+  useEffect(() => {
+      let task = "Free Play";
+      if (currentView === AppView.LOGIC_BUILDER) task = "Building Logic Blocks";
+      if (currentView === AppView.CODE_LAB) task = "Writing Python Code";
+      if (currentView === AppView.CLASSROOM) task = "In Classroom";
+      
+      setStudentContext(prev => ({
+          ...prev,
+          currentTask: task,
+          codeSnippet: currentView === AppView.CODE_LAB ? code : JSON.stringify(program.map(b => b.type)),
+      }));
+  }, [code, program, currentView]);
 
   // Recording Timer
   useEffect(() => {
@@ -116,6 +163,7 @@ const App: React.FC = () => {
             {/* Center: Navigation */}
             <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-100/80 backdrop-blur p-1.5 rounded-full border border-slate-200 shadow-inner max-w-[60%] overflow-x-auto no-scrollbar">
                 <NavButton view={AppView.DASHBOARD} icon={Grid} label="Home" />
+                <NavButton view={AppView.CLASSROOM} icon={Users} label="Class" />
                 <NavButton view={AppView.BRAIN_BUILDER} icon={BrainCircuit} label="AI Core" />
                 <NavButton view={AppView.LOGIC_BUILDER} icon={Layout} label="Logic" />
                 <NavButton view={AppView.CODE_LAB} icon={BookOpen} label="Code" />
@@ -151,14 +199,19 @@ const App: React.FC = () => {
          {/* Sidebar: Dynamic sizing based on view */}
          <aside className={`
             hidden lg:flex transition-all duration-500 ease-in-out flex-col gap-4 p-4 overflow-y-auto shrink-0 bg-white/50 border-r border-sky-100
-            ${currentView === AppView.PRESENTATION ? 'w-[400px] bg-slate-800 border-r-0' : 'w-80'}
+            ${currentView === AppView.PRESENTATION || currentView === AppView.CLASSROOM ? 'w-0 opacity-0 p-0 border-0' : 'w-80'}
          `}>
              <div className="flex-1 flex flex-col min-h-[350px]">
                 {currentView !== AppView.PRESENTATION && <h3 className="font-bold text-slate-400 text-xs uppercase tracking-wider mb-3 px-1">Interactive Companion</h3>}
                 
                 <div className={`flex-1 relative transition-all duration-500 ${currentView === AppView.PRESENTATION ? 'scale-110 translate-y-10' : ''}`}>
                     <div className="absolute inset-0">
-                        <AvatarInterface config={avatarConfig} emotion={avatarEmotion} isRecording={isRecording} />
+                        <AvatarInterface 
+                            config={avatarConfig} 
+                            emotion={avatarEmotion} 
+                            isRecording={isRecording}
+                            studentContext={studentContext}
+                        />
                     </div>
                 </div>
                 
@@ -191,10 +244,10 @@ const App: React.FC = () => {
          </aside>
 
          {/* Content Area */}
-         <main className={`flex-1 flex flex-col min-w-0 bg-sky-50/50 p-4 lg:p-6 relative overflow-hidden transition-colors ${currentView === AppView.PRESENTATION ? 'bg-slate-900 p-0' : ''}`}>
+         <main className={`flex-1 flex flex-col min-w-0 bg-sky-50/50 p-4 lg:p-6 relative overflow-hidden transition-colors ${currentView === AppView.PRESENTATION || currentView === AppView.CLASSROOM ? 'bg-slate-900 p-0' : ''}`}>
              
              {/* View Header (Standard Mode) */}
-             {currentView !== AppView.PRESENTATION && (
+             {currentView !== AppView.PRESENTATION && currentView !== AppView.CLASSROOM && (
                 <div className="mb-6 shrink-0 flex justify-between items-end">
                     <div>
                         {currentView === AppView.DASHBOARD && (
@@ -312,6 +365,15 @@ const App: React.FC = () => {
                                 setConfig={setAvatarConfig} 
                                 user={user}
                                 setUser={setUser}
+                            />
+                        </div>
+                    )}
+
+                    {currentView === AppView.CLASSROOM && (
+                        <div className="h-full p-4 lg:p-8">
+                            <ClassroomMode 
+                                user={user}
+                                userAvatarConfig={avatarConfig}
                             />
                         </div>
                     )}

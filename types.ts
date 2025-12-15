@@ -14,12 +14,15 @@ export enum AppView {
   CODE_LAB = 'CODE_LAB',
   AVATAR_STUDIO = 'AVATAR_STUDIO',
   PRESENTATION = 'PRESENTATION',
-  BRAIN_BUILDER = 'BRAIN_BUILDER'
+  BRAIN_BUILDER = 'BRAIN_BUILDER',
+  CLASSROOM = 'CLASSROOM'
 }
 
 export type AvatarEmotion = 'neutral' | 'happy' | 'sad' | 'thinking' | 'surprised' | 'focused';
 
 export type AvatarStyle = 'robot' | 'human';
+
+export type TutorPersonality = 'friendly' | 'strict' | 'playful' | 'calm';
 
 export interface AvatarConfig {
   style: AvatarStyle;
@@ -36,11 +39,14 @@ export interface AvatarConfig {
   eyeColor: string;
   clothing: string;
   backgroundColor: string;
+  
+  // Personality
+  personality: TutorPersonality;
 }
 
 export interface AvatarPart {
   id: string;
-  type: 'base' | 'color' | 'accessory' | 'skin' | 'hair' | 'hairColor' | 'clothing' | 'eyes' | 'bg';
+  type: 'base' | 'color' | 'accessory' | 'skin' | 'hair' | 'hairColor' | 'clothing' | 'eyes' | 'bg' | 'personality';
   name: string;
   value: string; // CSS class or color value
   unlockLevel: number;
@@ -119,4 +125,32 @@ export interface IntelligenceModel {
   kpiTree: KPINode[];
   rules: BusinessRule[];
   context: DecisionContext;
+}
+
+export interface StudentContext {
+  currentTask: string;
+  codeSnippet?: string;
+  recentError?: string;
+  isIdle: boolean;
+  lastSuccessTime?: number;
+}
+
+// --- Classroom Types ---
+
+export interface Peer {
+  id: string;
+  name: string;
+  avatarConfig: AvatarConfig;
+  status: 'online' | 'away' | 'raising_hand' | 'working';
+  emotion: AvatarEmotion;
+  lastReaction?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string; // 'me' or peerId
+  senderName: string;
+  content: string;
+  type: 'text' | 'emoji' | 'system';
+  timestamp: number;
 }

@@ -1,5 +1,5 @@
 
-import { Lesson, AvatarPart, AvatarConfig, BlockDefinition, UserProfile } from './types';
+import { Lesson, AvatarPart, AvatarConfig, BlockDefinition, UserProfile, TutorPersonality, Peer } from './types';
 
 export const INITIAL_PROFILE: UserProfile = {
   name: "Alex",
@@ -20,13 +20,42 @@ export const DEFAULT_AVATAR_CONFIG: AvatarConfig = {
   hairColor: 'brown',
   eyeColor: 'blue',
   clothing: 'tshirt_blue',
-  backgroundColor: 'bg-slate-900'
+  backgroundColor: 'bg-slate-900',
+  personality: 'friendly'
+};
+
+export const TUTOR_PROMPTS: Record<TutorPersonality, string> = {
+  friendly: `You are CodeBot, a super friendly and encouraging coding coach for kids. 
+             Tone: High energy, uses emojis, metaphor-heavy (e.g., "Think of a loop like a hamster wheel!").
+             Strategy: Always validate the student's effort first. If they are stuck, give a small hint, never the answer.
+             Reaction to Errors: "Oops! Bugs happen. Let's squash it together!"`,
+  
+  strict: `You are Professor Byte, a serious, precise, but fair mentor.
+           Tone: Formal, concise, focuses on logic and efficiency. No emojis.
+           Strategy: Demand precision. Ask Socratic questions: "Why did you choose that block?"
+           Reaction to Errors: "Incorrect syntax. Analyze line 3. What is missing?"`,
+  
+  playful: `You are Glitch, a chaotic good robot friend!
+            Tone: Silly, makes puns, references video games.
+            Strategy: Gamify everything. "Level up your loop!" "That bug is a boss battle!"
+            Reaction to Errors: "Womp womp. The code exploded (metaphorically). Try again!"`,
+  
+  calm: `You are ZenBot.
+         Tone: Slow, peaceful, meditative.
+         Strategy: Focus on flow and mindfulness. "Breathe in... code out..."
+         Reaction to Errors: "A mistake is just a stepping stone to wisdom. Observe the error gently."`
 };
 
 export const AVATAR_OPTIONS = {
   styles: [
     { id: 'robot', name: 'Robot' },
     { id: 'human', name: 'Human' }
+  ],
+  personalities: [
+    { id: 'friendly', name: 'Friendly Coach', icon: 'Smile' },
+    { id: 'strict', name: 'Professor Byte', icon: 'Glasses' },
+    { id: 'playful', name: 'Glitch (Playful)', icon: 'Gamepad2' },
+    { id: 'calm', name: 'ZenBot', icon: 'Leaf' }
   ],
   skinTones: [
     { id: 'light', value: '#fce5d4', name: 'Light' },
@@ -137,4 +166,36 @@ export const LESSONS: Lesson[] = [
   { id: '2', title: 'Loop-de-Loop', description: 'Learn how to repeat actions without getting dizzy.', difficulty: 'Beginner', locked: false, xpReward: 150 },
   { id: '3', title: 'If This, Then That', description: 'Teaching your avatar to make decisions.', difficulty: 'Intermediate', locked: true, xpReward: 300 },
   { id: '4', title: 'Function Junction', description: 'Organize your code like a pro.', difficulty: 'Advanced', locked: true, xpReward: 500 },
+];
+
+export const SAFE_PHRASES = [
+  "Good job! 🌟", 
+  "I'm stuck, can anyone help? 🤔", 
+  "Check out my code! 💻", 
+  "That's so cool! 🚀",
+  "How did you do that? 🤯", 
+  "Ready to present! 🎤", 
+  "Bug squashed! 🐛", 
+  "Let's work together! 🤝"
+];
+
+export const REACTION_EMOJIS = ["👍", "👏", "❤️", "🔥", "🤔", "😂"];
+
+export const MOCK_PEERS: Peer[] = [
+    { 
+        id: 'p1', name: 'Sarah', status: 'online', emotion: 'happy',
+        avatarConfig: { ...DEFAULT_AVATAR_CONFIG, style: 'human', hairStyle: 'pigtails', hairColor: 'blonde', clothing: 'hoodie_gray' } 
+    },
+    { 
+        id: 'p2', name: 'Jamal', status: 'working', emotion: 'focused',
+        avatarConfig: { ...DEFAULT_AVATAR_CONFIG, style: 'human', hairStyle: 'short', skinTone: 'dark', clothing: 'suit_space' } 
+    },
+    { 
+        id: 'p3', name: 'Robo-X', status: 'raising_hand', emotion: 'surprised',
+        avatarConfig: { ...DEFAULT_AVATAR_CONFIG, style: 'robot', baseId: 'robot_round', color: 'rose' } 
+    },
+    { 
+        id: 'p4', name: 'Maya', status: 'online', emotion: 'neutral',
+        avatarConfig: { ...DEFAULT_AVATAR_CONFIG, style: 'human', hairStyle: 'long', clothing: 'shirt_check' } 
+    }
 ];

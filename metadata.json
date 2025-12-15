@@ -1,0 +1,8 @@
+{
+  "name": "CodeVerse Avatars",
+  "description": "A playful, privacy-first programming education platform where kids learn to code with expressive AI avatars and visual logic blocks.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

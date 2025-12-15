@@ -1,6 +1,7 @@
 
 export interface UserProfile {
   name: string;
+  avatarName: string; // Separated identity
   level: number;
   xp: number;
   avatarId: string;
@@ -16,18 +17,31 @@ export enum AppView {
 
 export type AvatarEmotion = 'neutral' | 'happy' | 'sad' | 'thinking' | 'surprised' | 'focused';
 
+export type AvatarStyle = 'robot' | 'human';
+
 export interface AvatarConfig {
-  baseId: string;
-  color: string;
+  style: AvatarStyle;
+  
+  // Shared / Robot
+  baseId: string; // 'robot_classic', 'robot_round' OR 'human_base'
+  color: string; // Chassis color for robots
   accessoryId: string;
+
+  // Human Specific
+  skinTone: string;
+  hairStyle: string;
+  hairColor: string;
+  eyeColor: string;
+  clothing: string;
+  backgroundColor: string;
 }
 
 export interface AvatarPart {
   id: string;
-  type: 'base' | 'color' | 'accessory';
+  type: 'base' | 'color' | 'accessory' | 'skin' | 'hair' | 'hairColor' | 'clothing' | 'eyes' | 'bg';
   name: string;
+  value: string; // CSS class or color value
   unlockLevel: number;
-  previewColor?: string;
 }
 
 export interface Lesson {

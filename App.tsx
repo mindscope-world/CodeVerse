@@ -10,7 +10,7 @@ import { INITIAL_PROFILE, LESSONS, DEFAULT_AVATAR_CONFIG } from './constants';
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [generatedCode, setGeneratedCode] = useState<string | undefined>(undefined);
-  const [user] = useState<UserProfile>(INITIAL_PROFILE);
+  const [user, setUser] = useState<UserProfile>(INITIAL_PROFILE);
   const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(DEFAULT_AVATAR_CONFIG);
   const [avatarEmotion, setAvatarEmotion] = useState<AvatarEmotion>('neutral');
 
@@ -82,6 +82,11 @@ const App: React.FC = () => {
                     <div className="absolute inset-0">
                         <AvatarInterface config={avatarConfig} emotion={avatarEmotion} />
                     </div>
+                </div>
+                <div className="text-center mt-2">
+                    <span className="bg-sky-100 text-sky-700 px-3 py-1 rounded-full text-xs font-bold border border-sky-200">
+                        {user.avatarName}
+                    </span>
                 </div>
              </div>
              
@@ -194,7 +199,8 @@ const App: React.FC = () => {
                             <AvatarStudio 
                             config={avatarConfig} 
                             setConfig={setAvatarConfig} 
-                            userLevel={user.level} 
+                            user={user}
+                            setUser={setUser}
                             />
                         </div>
                     )}

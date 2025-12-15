@@ -2,11 +2,90 @@
 import { Lesson, AvatarPart, AvatarConfig, BlockDefinition, UserProfile } from './types';
 
 export const INITIAL_PROFILE: UserProfile = {
-  name: "CoderKid",
+  name: "Alex",
+  avatarName: "CodeBot",
   level: 3,
   xp: 1250,
   avatarId: "robot_1",
   badges: ["Loop Master", "Bug Hunter"]
+};
+
+export const DEFAULT_AVATAR_CONFIG: AvatarConfig = {
+  style: 'robot',
+  baseId: 'robot_classic',
+  color: 'indigo',
+  accessoryId: 'none',
+  skinTone: 'light',
+  hairStyle: 'none',
+  hairColor: 'brown',
+  eyeColor: 'blue',
+  clothing: 'tshirt_blue',
+  backgroundColor: 'bg-slate-900'
+};
+
+export const AVATAR_OPTIONS = {
+  styles: [
+    { id: 'robot', name: 'Robot' },
+    { id: 'human', name: 'Human' }
+  ],
+  skinTones: [
+    { id: 'light', value: '#fce5d4', name: 'Light' },
+    { id: 'fair', value: '#f5d0b1', name: 'Fair' },
+    { id: 'medium', value: '#d4aa78', name: 'Medium' },
+    { id: 'tan', value: '#b58b5a', name: 'Tan' },
+    { id: 'dark', value: '#8d5524', name: 'Dark' },
+    { id: 'deep', value: '#543015', name: 'Deep' }
+  ],
+  hairStyles: [
+    { id: 'none', name: 'Bald' },
+    { id: 'short', name: 'Short' },
+    { id: 'bob', name: 'Bob' },
+    { id: 'spiky', name: 'Spiky' },
+    { id: 'pigtails', name: 'Pigtails' },
+    { id: 'long', name: 'Long' }
+  ],
+  hairColors: [
+    { id: 'black', value: '#1a1a1a', name: 'Black' },
+    { id: 'brown', value: '#5d4037', name: 'Brown' },
+    { id: 'blonde', value: '#e6c768', name: 'Blonde' },
+    { id: 'red', value: '#c62828', name: 'Red' },
+    { id: 'blue', value: '#1e88e5', name: 'Blue' },
+    { id: 'pink', value: '#f48fb1', name: 'Pink' },
+    { id: 'white', value: '#f5f5f5', name: 'White' }
+  ],
+  eyeColors: [
+    { id: 'black', value: '#212121', name: 'Dark' },
+    { id: 'blue', value: '#2196f3', name: 'Blue' },
+    { id: 'green', value: '#4caf50', name: 'Green' },
+    { id: 'brown', value: '#795548', name: 'Brown' },
+    { id: 'purple', value: '#9c27b0', name: 'Purple' }
+  ],
+  clothing: [
+    { id: 'tshirt_blue', value: 'bg-blue-500', name: 'Blue Tee' },
+    { id: 'tshirt_red', value: 'bg-red-500', name: 'Red Tee' },
+    { id: 'hoodie_gray', value: 'bg-slate-600', name: 'Gray Hoodie' },
+    { id: 'shirt_check', value: 'bg-indigo-600', name: 'Plaid Shirt' },
+    { id: 'suit_space', value: 'bg-orange-500', name: 'Space Suit' }
+  ],
+  robotColors: [
+    { id: 'indigo', value: 'bg-indigo-500', name: 'Indigo' },
+    { id: 'rose', value: 'bg-rose-500', name: 'Rose' },
+    { id: 'emerald', value: 'bg-emerald-500', name: 'Emerald' },
+    { id: 'amber', value: 'bg-amber-500', name: 'Amber' },
+    { id: 'sky', value: 'bg-sky-500', name: 'Sky' }
+  ],
+  robotBases: [
+    { id: 'robot_classic', name: 'Classic Bot' },
+    { id: 'robot_round', name: 'Sphere Bot' },
+    { id: 'robot_square', name: 'Cube Bot' }
+  ],
+  accessories: [
+    { id: 'none', name: 'None' },
+    { id: 'glasses', name: 'Glasses' },
+    { id: 'hat_party', name: 'Party Hat' },
+    { id: 'antenna_simple', name: 'Antenna' },
+    { id: 'headphones', name: 'Headphones' }
+  ]
 };
 
 export const BLOCK_DEFINITIONS: BlockDefinition[] = [
@@ -58,31 +137,4 @@ export const LESSONS: Lesson[] = [
   { id: '2', title: 'Loop-de-Loop', description: 'Learn how to repeat actions without getting dizzy.', difficulty: 'Beginner', locked: false, xpReward: 150 },
   { id: '3', title: 'If This, Then That', description: 'Teaching your avatar to make decisions.', difficulty: 'Intermediate', locked: true, xpReward: 300 },
   { id: '4', title: 'Function Junction', description: 'Organize your code like a pro.', difficulty: 'Advanced', locked: true, xpReward: 500 },
-];
-
-export const DEFAULT_AVATAR_CONFIG: AvatarConfig = {
-  baseId: 'robot_classic',
-  color: 'indigo',
-  accessoryId: 'none'
-};
-
-export const AVATAR_PARTS: AvatarPart[] = [
-  // Bases
-  { id: 'robot_classic', type: 'base', name: 'Classic Bot', unlockLevel: 1 },
-  { id: 'robot_round', type: 'base', name: 'Sphere Bot', unlockLevel: 3 },
-  { id: 'robot_square', type: 'base', name: 'Cube Bot', unlockLevel: 5 },
-  
-  // Colors
-  { id: 'indigo', type: 'color', name: 'Cosmic Indigo', previewColor: 'bg-indigo-500', unlockLevel: 1 },
-  { id: 'rose', type: 'color', name: 'Neon Rose', previewColor: 'bg-rose-500', unlockLevel: 2 },
-  { id: 'emerald', type: 'color', name: 'Matrix Green', previewColor: 'bg-emerald-500', unlockLevel: 4 },
-  { id: 'amber', type: 'color', name: 'Circuit Gold', previewColor: 'bg-amber-500', unlockLevel: 6 },
-  { id: 'sky', type: 'color', name: 'Sky Blue', previewColor: 'bg-sky-500', unlockLevel: 8 },
-
-  // Accessories
-  { id: 'none', type: 'accessory', name: 'No Accessory', unlockLevel: 1 },
-  { id: 'antenna_simple', type: 'accessory', name: 'Basic Antenna', unlockLevel: 1 },
-  { id: 'antenna_double', type: 'accessory', name: 'Dual Receivers', unlockLevel: 3 },
-  { id: 'hat_party', type: 'accessory', name: 'Party Hat', unlockLevel: 4 },
-  { id: 'headphones', type: 'accessory', name: 'Gamer Headset', unlockLevel: 6 },
 ];

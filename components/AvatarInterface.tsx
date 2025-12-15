@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Mic, MicOff, Video, VideoOff, Sparkles, BrainCircuit, Check } from 'lucide-react';
 import { GeminiLiveClient } from '../services/geminiService';
 import { AvatarConfig, AvatarEmotion } from '../types';
-import { DEFAULT_AVATAR_CONFIG } from '../constants';
+import { DEFAULT_AVATAR_CONFIG, AVATAR_OPTIONS } from '../constants';
 
 interface AvatarInterfaceProps {
   config?: AvatarConfig;
@@ -45,12 +45,10 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         
-        // Video Setup
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
 
-        // Audio Setup for Lip Sync (Local)
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         const audioCtx = new AudioContextClass();
         const source = audioCtx.createMediaStreamSource(stream);
@@ -91,23 +89,19 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
     let targetY = 0;
 
     const loop = () => {
-      // A. Audio Analysis (Lip Sync)
       if (analyserRef.current && dataArrayRef.current) {
         analyserRef.current.getByteFrequencyData(dataArrayRef.current);
         const average = dataArrayRef.current.reduce((a, b) => a + b, 0) / dataArrayRef.current.length;
-        // Map average (0-255) to mouth open (0-1)
         const val = Math.max(0, (average - 10) / 50); 
-        setMouthOpen(prev => prev * 0.7 + val * 0.3); // Smooth
+        setMouthOpen(prev => prev * 0.7 + val * 0.3);
       }
 
-      // B. Motion Tracking (Head Position)
       if (videoRef.current && canvasRef.current) {
         const video = videoRef.current;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
         if (ctx && video.readyState === 4) {
-          // Draw downsampled frame
           ctx.drawImage(video, 0, 0, DOWNSAMPLE_SIZE, DOWNSAMPLE_SIZE);
           const frameData = ctx.getImageData(0, 0, DOWNSAMPLE_SIZE, DOWNSAMPLE_SIZE).data;
 
@@ -133,8 +127,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
               const avgX = xSum / count;
               const avgY = ySum / count;
               
-              // Map to range -1 to 1 (inverted X for mirror effect)
-              targetX = -1 * ((avgX / DOWNSAMPLE_SIZE) - 0.5) * 40; // Multiplier for sensitivity
+              targetX = -1 * ((avgX / DOWNSAMPLE_SIZE) - 0.5) * 40; 
               targetY = ((avgY / DOWNSAMPLE_SIZE) - 0.5) * 30;
             }
           }
@@ -142,7 +135,6 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
         }
       }
 
-      // Smooth Interpolation
       setHeadPos(prev => ({
         x: prev.x + (targetX - prev.x) * MOTION_SMOOTHING,
         y: prev.y + (targetY - prev.y) * MOTION_SMOOTHING
@@ -199,74 +191,213 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
     }
   };
 
-  // --- Visual Helpers ---
+  // --- Dynamic Styling Helpers ---
+  const getSkinColor = () => AVATAR_OPTIONS.skinTones.find(s => s.id === config.skinTone)?.value || '#fce5d4';
+  const getHairColor = () => AVATAR_OPTIONS.hairColors.find(s => s.id === config.hairColor)?.value || '#5d4037';
+  const getEyeColor = () => AVATAR_OPTIONS.eyeColors.find(s => s.id === config.eyeColor)?.value || '#2196f3';
+  const getRobotColor = () => AVATAR_OPTIONS.robotColors.find(s => s.id === config.color)?.value || 'bg-indigo-500';
+  const getClothingClass = () => AVATAR_OPTIONS.clothing.find(s => s.id === config.clothing)?.value || 'bg-blue-500';
 
-  const getColorClass = (colorName: string) => {
-    switch (colorName) {
-      case 'rose': return 'bg-rose-500 shadow-[0_0_40px_rgba(244,63,94,0.4)]';
-      case 'emerald': return 'bg-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.4)]';
-      case 'amber': return 'bg-amber-500 shadow-[0_0_40px_rgba(245,158,11,0.4)]';
-      case 'sky': return 'bg-sky-500 shadow-[0_0_40px_rgba(14,165,233,0.4)]';
-      default: return 'bg-indigo-500 shadow-[0_0_40px_rgba(99,102,241,0.4)]';
-    }
-  };
-
-  const getShapeClass = (shapeId: string) => {
-      switch(shapeId) {
-          case 'robot_round': return 'rounded-full';
-          case 'robot_square': return 'rounded-3xl';
-          default: return 'rounded-[2.5rem]';
-      }
-  };
-
-  // --- Emotion Logic ---
   const getEyebrowStyle = () => {
-      const base = "absolute -top-3 w-8 h-2 bg-slate-800 rounded-full transition-all duration-500";
+      const base = "absolute -top-3 w-8 h-2 rounded-full transition-all duration-500";
+      const color = config.style === 'human' ? getHairColor() : 'bg-slate-800';
+      const style = { backgroundColor: config.style === 'human' ? getHairColor() : undefined, className: config.style === 'human' ? '' : 'bg-slate-800' };
+
+      // Helper to merge transforms
+      const t = (trans: string) => ({ ...style, transform: trans });
+
       switch(emotion) {
-          case 'happy': return { left: `${base} -translate-y-2 rotate-12`, right: `${base} -translate-y-2 -rotate-12` };
-          case 'sad': return { left: `${base} translate-y-1 -rotate-12`, right: `${base} translate-y-1 rotate-12` };
-          case 'focused': return { left: `${base} translate-y-2 rotate-12`, right: `${base} translate-y-2 -rotate-12` };
-          case 'thinking': return { left: `${base} -translate-y-1`, right: `${base} translate-y-1 -rotate-6` };
-          case 'surprised': return { left: `${base} -translate-y-4`, right: `${base} -translate-y-4` };
-          default: return { left: `${base}`, right: `${base}` }; // Neutral
+          case 'happy': return { left: t('translateY(-6px) rotate(12deg)'), right: t('translateY(-6px) rotate(-12deg)') };
+          case 'sad': return { left: t('translateY(4px) rotate(-12deg)'), right: t('translateY(4px) rotate(12deg)') };
+          case 'focused': return { left: t('translateY(8px) rotate(12deg)'), right: t('translateY(8px) rotate(-12deg)') };
+          case 'thinking': return { left: t('translateY(-2px)'), right: t('translateY(4px) rotate(-6deg)') };
+          case 'surprised': return { left: t('translateY(-12px)'), right: t('translateY(-12px)') };
+          default: return { left: t('translateY(0)'), right: t('translateY(0)') };
       }
   };
 
   const getMouthStyle = () => {
-    // We use a combination of border radius and scaling to create mouth shapes
     const baseWidth = Math.max(20, mouthOpen * 50);
     const baseHeight = Math.max(4, mouthOpen * 40);
+    const bg = config.style === 'human' ? '#d84315' : 'white';
     
     let style: React.CSSProperties = {
         width: `${baseWidth}px`,
         height: `${baseHeight}px`,
-        transition: 'all 0.3s ease-out'
+        transition: 'all 0.1s ease-out',
+        backgroundColor: bg,
+        position: 'absolute',
+        bottom: '25px',
+        left: '50%',
+        transform: 'translateX(-50%)'
     };
 
     if (mouthOpen < 0.1) {
-        // If not talking, show static emotion mouth
+        // Static Emotions
+        style.backgroundColor = 'transparent';
+        const stroke = config.style === 'human' ? '#d84315' : 'white';
+        
         switch(emotion) {
             case 'happy': 
-                return { ...style, width: '24px', height: '12px', borderRadius: '0 0 20px 20px', backgroundColor: 'transparent', borderBottom: '4px solid white' };
+                return { ...style, width: '24px', height: '12px', borderRadius: '0 0 20px 20px', borderBottom: `4px solid ${stroke}` };
             case 'sad':
-                return { ...style, width: '24px', height: '12px', borderRadius: '20px 20px 0 0', backgroundColor: 'transparent', borderTop: '4px solid white', marginTop: '10px' };
+                return { ...style, width: '24px', height: '12px', borderRadius: '20px 20px 0 0', borderTop: `4px solid ${stroke}`, bottom: '20px' };
             case 'surprised':
-                return { ...style, width: '16px', height: '16px', borderRadius: '50%', backgroundColor: 'white' };
+                return { ...style, width: '16px', height: '16px', borderRadius: '50%', backgroundColor: stroke, bottom: '25px' };
             case 'focused':
-                return { ...style, width: '20px', height: '4px', borderRadius: '2px', backgroundColor: 'white' };
-            case 'thinking':
-                 return { ...style, width: '12px', height: '6px', borderRadius: '4px', backgroundColor: 'white', transform: 'translateX(8px)' };
+                return { ...style, width: '20px', height: '4px', borderRadius: '2px', backgroundColor: stroke, bottom: '28px' };
             default: // Neutral
-                return { ...style, width: '20px', height: '4px', borderRadius: '2px', backgroundColor: 'white' };
+                return { ...style, width: '20px', height: '4px', borderRadius: '2px', backgroundColor: stroke, bottom: '28px' };
         }
     }
-
-    // Talking - standard oval
-    return { ...style, borderRadius: mouthOpen > 0.5 ? '50%' : '12px', backgroundColor: 'white' };
+    // Talking
+    return { ...style, borderRadius: mouthOpen > 0.5 ? '50%' : '12px', backgroundColor: bg };
   };
 
   const eyebrows = getEyebrowStyle();
   const mouthStyle = getMouthStyle();
+
+  // --- Render Components ---
+
+  const RenderAccessories = () => (
+      <>
+        {config.accessoryId === 'glasses' && (
+             <div className="absolute top-[35%] left-1/2 -translate-x-1/2 w-28 h-10 flex justify-between items-center z-20">
+                 <div className="w-10 h-10 rounded-full border-4 border-slate-800 bg-black/10"></div>
+                 <div className="w-4 h-1 bg-slate-800"></div>
+                 <div className="w-10 h-10 rounded-full border-4 border-slate-800 bg-black/10"></div>
+             </div>
+        )}
+        {config.accessoryId === 'hat_party' && (
+             <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[24px] border-l-transparent border-r-[24px] border-r-transparent border-b-[60px] border-b-yellow-400 filter drop-shadow-md z-30"></div>
+        )}
+        {config.accessoryId === 'antenna_simple' && (
+            <div className="absolute -top-6 left-1/2 -translate-x-1/2 flex flex-col items-center z-10">
+                <div className="w-1.5 h-6 bg-slate-400"></div>
+                <div className={`w-4 h-4 rounded-full ${isLive ? 'bg-red-500 animate-ping' : 'bg-red-400'}`}></div>
+            </div>
+        )}
+        {config.accessoryId === 'headphones' && (
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-36 h-32 pointer-events-none z-30">
+                <div className="absolute -top-4 left-0 right-0 h-12 border-[8px] border-slate-800 rounded-t-full"></div>
+                <div className="absolute top-8 -left-4 w-10 h-14 bg-slate-800 rounded-xl border-l-4 border-slate-600"></div>
+                <div className="absolute top-8 -right-4 w-10 h-14 bg-slate-800 rounded-xl border-r-4 border-slate-600"></div>
+            </div>
+        )}
+      </>
+  );
+
+  const RenderRobot = () => (
+      <div className={`relative transition-all duration-300 ${getRobotColor()} ${config.baseId === 'robot_round' ? 'rounded-full' : config.baseId === 'robot_square' ? 'rounded-3xl' : 'rounded-[2.5rem]'} w-36 h-36 border-4 border-white flex flex-col items-center justify-center shadow-lg`}>
+          {/* Eyes */}
+          <div className="flex gap-5 mb-4 relative z-10">
+               <div className="relative">
+                   <div className="absolute -top-3 w-8 h-2 bg-slate-800 rounded-full" style={eyebrows.left}></div>
+                   <div className={`w-8 h-8 bg-white rounded-full flex items-center justify-center overflow-hidden`}>
+                      <div className={`w-3 h-3 rounded-full transition-transform duration-75 bg-slate-900`} style={{ transform: `translate(${headPos.x * 0.5}px, ${headPos.y * 0.5}px)` }}></div>
+                   </div>
+               </div>
+               <div className="relative">
+                   <div className="absolute -top-3 w-8 h-2 bg-slate-800 rounded-full" style={eyebrows.right}></div>
+                   <div className={`w-8 h-8 bg-white rounded-full flex items-center justify-center overflow-hidden`}>
+                      <div className={`w-3 h-3 rounded-full transition-transform duration-75 bg-slate-900`} style={{ transform: `translate(${headPos.x * 0.5}px, ${headPos.y * 0.5}px)` }}></div>
+                   </div>
+               </div>
+          </div>
+          <div style={mouthStyle}></div>
+          <RenderAccessories />
+      </div>
+  );
+
+  const RenderHuman = () => (
+    <div className="relative w-40 h-48 flex flex-col items-center">
+        {/* Hair Back Layer */}
+        {config.hairStyle === 'long' && <div className="absolute top-8 w-40 h-32 rounded-b-xl z-0" style={{ backgroundColor: getHairColor() }}></div>}
+        {config.hairStyle === 'bob' && <div className="absolute top-8 w-36 h-28 rounded-b-[3rem] z-0" style={{ backgroundColor: getHairColor() }}></div>}
+        {config.hairStyle === 'pigtails' && (
+            <>
+                <div className="absolute top-10 -left-6 w-16 h-24 rounded-full z-0" style={{ backgroundColor: getHairColor() }}></div>
+                <div className="absolute top-10 -right-6 w-16 h-24 rounded-full z-0" style={{ backgroundColor: getHairColor() }}></div>
+            </>
+        )}
+
+        {/* Body / Clothing */}
+        <div className={`absolute bottom-0 w-32 h-20 rounded-t-[3rem] z-10 shadow-sm ${getClothingClass()}`}>
+            {/* Neck */}
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-10 h-8 z-0" style={{ backgroundColor: getSkinColor(), filter: 'brightness(0.9)' }}></div>
+            {/* Detail */}
+            {config.clothing === 'tshirt_blue' && <div className="absolute top-6 left-1/2 -translate-x-1/2 w-16 h-16 rounded-full border-4 border-white/20"></div>}
+            {config.clothing === 'hoodie_gray' && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-20 h-2 bg-slate-800/20 rounded-b-lg"></div>}
+        </div>
+
+        {/* Head */}
+        <div className="absolute top-6 w-28 h-32 rounded-[2.5rem] z-20 flex flex-col items-center shadow-md" style={{ backgroundColor: getSkinColor() }}>
+            
+            {/* Hair Front Layer */}
+            {config.hairStyle !== 'none' && (
+                 <div className="absolute -top-2 w-32 h-16 z-30 pointer-events-none">
+                     {config.hairStyle === 'short' && <div className="w-full h-full rounded-t-[3rem]" style={{ backgroundColor: getHairColor() }}></div>}
+                     {config.hairStyle === 'spiky' && (
+                         <div className="flex justify-center -mt-4">
+                             <div className="w-8 h-8 rotate-45" style={{ backgroundColor: getHairColor() }}></div>
+                             <div className="w-10 h-10 -ml-4 rotate-45 -mt-2" style={{ backgroundColor: getHairColor() }}></div>
+                             <div className="w-8 h-8 -ml-4 rotate-45" style={{ backgroundColor: getHairColor() }}></div>
+                         </div>
+                     )}
+                     {(config.hairStyle === 'bob' || config.hairStyle === 'long' || config.hairStyle === 'pigtails') && (
+                         <div className="w-full h-full rounded-t-[3rem] clip-path-bangs" style={{ backgroundColor: getHairColor() }}></div>
+                     )}
+                 </div>
+            )}
+
+            {/* Face Features */}
+            <div className="mt-12 w-full flex flex-col items-center relative">
+                 {/* Eyes */}
+                 <div className="flex gap-4 mb-2">
+                     <div className="relative">
+                         <div className="absolute -top-3 w-8 h-2 rounded-full z-10" style={{ ...eyebrows.left, backgroundColor: getHairColor() }}></div>
+                         <div className="w-8 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner">
+                            <div 
+                                className="w-4 h-4 rounded-full transition-transform duration-75"
+                                style={{ 
+                                    backgroundColor: getEyeColor(),
+                                    transform: `translate(${headPos.x * 0.4}px, ${headPos.y * 0.4}px)` 
+                                }}
+                            >
+                                <div className="w-1.5 h-1.5 bg-black rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
+                                <div className="w-1 h-1 bg-white rounded-full absolute top-1 left-1 opacity-60"></div>
+                            </div>
+                         </div>
+                     </div>
+                     <div className="relative">
+                         <div className="absolute -top-3 w-8 h-2 rounded-full z-10" style={{ ...eyebrows.right, backgroundColor: getHairColor() }}></div>
+                         <div className="w-8 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner">
+                            <div 
+                                className="w-4 h-4 rounded-full transition-transform duration-75"
+                                style={{ 
+                                    backgroundColor: getEyeColor(),
+                                    transform: `translate(${headPos.x * 0.4}px, ${headPos.y * 0.4}px)` 
+                                }}
+                            >
+                                <div className="w-1.5 h-1.5 bg-black rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
+                                <div className="w-1 h-1 bg-white rounded-full absolute top-1 left-1 opacity-60"></div>
+                            </div>
+                         </div>
+                     </div>
+                 </div>
+                 
+                 {/* Nose */}
+                 <div className="w-2 h-2 rounded-full bg-black/10 mb-1"></div>
+
+                 {/* Mouth */}
+                 <div style={mouthStyle}></div>
+            </div>
+        </div>
+        
+        {/* Accessories Layer */}
+        <RenderAccessories />
+    </div>
+  );
 
   return (
     <div className="bg-white rounded-3xl p-4 shadow-sm border border-sky-100 flex flex-col gap-4 relative overflow-hidden h-full">
@@ -291,7 +422,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       <canvas ref={canvasRef} width={DOWNSAMPLE_SIZE} height={DOWNSAMPLE_SIZE} className="hidden" />
 
       {/* Main Visual Stage */}
-      <div className="relative flex-1 min-h-[200px] bg-slate-900 rounded-2xl overflow-hidden shadow-inner group w-full mx-auto">
+      <div className="relative flex-1 min-h-[200px] bg-slate-900 rounded-2xl overflow-hidden shadow-inner group w-full mx-auto flex items-center justify-center">
         
         {/* Background Grid */}
         <div className="absolute inset-0 opacity-20" 
@@ -309,7 +440,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
         {aiSpeaking && (
             <div className="absolute top-4 right-4 z-40 bg-white/90 backdrop-blur text-indigo-900 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2 animate-bounce">
                 <BrainCircuit size={12} className="text-indigo-500" />
-                CodeBot Speaking...
+                Speaking...
             </div>
         )}
 
@@ -328,73 +459,12 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
 
         {/* The Avatar Container (Moves with Head) */}
         <div 
-            className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none transition-transform duration-100 ease-out"
+            className="absolute z-20 pointer-events-none transition-transform duration-100 ease-out flex items-center justify-center"
             style={{ 
-                transform: `translate(${headPos.x}px, ${headPos.y}px) scale(${isCameraOn ? 1 : 0.9})`,
+                transform: `translate(${headPos.x}px, ${headPos.y}px) scale(${isCameraOn ? 1 : 0.95})`,
             }}
         >
-            {/* The Robot Character */}
-            <div className={`relative transition-all duration-300 ${getColorClass(config.color)} ${getShapeClass(config.baseId)} w-36 h-36 border-4 border-white flex flex-col items-center justify-center`}>
-                
-                {/* Eyes Container */}
-                <div className="flex gap-5 mb-4 relative z-10">
-                     {/* Left Eye Group */}
-                     <div className="relative">
-                         <div className={eyebrows.left}></div>
-                         <div className={`w-8 h-8 bg-white rounded-full flex items-center justify-center overflow-hidden relative transition-all duration-300 ${emotion === 'happy' ? 'h-6 mt-2' : ''} ${emotion === 'thinking' ? 'h-7 mt-1' : ''}`}>
-                            <div 
-                                className={`w-3 h-3 rounded-full transition-transform duration-75 ${config.color === 'amber' ? 'bg-amber-900' : 'bg-indigo-900'}`}
-                                style={{ transform: `translate(${headPos.x * 0.5}px, ${headPos.y * 0.5}px)` }}
-                            ></div>
-                            <div className="absolute inset-0 bg-indigo-900 animate-[blink_4s_infinite] opacity-0"></div> 
-                         </div>
-                     </div>
-                     
-                     {/* Right Eye Group */}
-                     <div className="relative">
-                         <div className={eyebrows.right}></div>
-                         <div className={`w-8 h-8 bg-white rounded-full flex items-center justify-center overflow-hidden relative transition-all duration-300 ${emotion === 'happy' ? 'h-6 mt-2' : ''}`}>
-                            <div 
-                                className={`w-3 h-3 rounded-full transition-transform duration-75 ${config.color === 'amber' ? 'bg-amber-900' : 'bg-indigo-900'}`}
-                                style={{ transform: `translate(${headPos.x * 0.5}px, ${headPos.y * 0.5}px)` }}
-                            ></div>
-                             <div className="absolute inset-0 bg-indigo-900 animate-[blink_4s_infinite_0.1s] opacity-0"></div>
-                         </div>
-                     </div>
-                </div>
-                
-                {/* Mouth - Dynamic */}
-                <div style={mouthStyle}></div>
-                
-                {/* Dynamic Accessories */}
-                {config.accessoryId === 'antenna_simple' && (
-                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 flex flex-col items-center">
-                        <div className="w-1.5 h-6 bg-white/80"></div>
-                        <div className={`w-4 h-4 rounded-full ${isLive ? 'bg-red-500 animate-ping' : 'bg-red-400'}`}></div>
-                    </div>
-                )}
-                
-                {config.accessoryId === 'antenna_double' && (
-                    <>
-                        <div className="absolute -top-6 left-6 w-1 h-8 bg-white/80 -rotate-12 origin-bottom"></div>
-                        <div className="absolute -top-6 right-6 w-1 h-8 bg-white/80 rotate-12 origin-bottom"></div>
-                        <div className="absolute -top-8 left-4 w-3 h-3 rounded-full bg-green-400"></div>
-                        <div className="absolute -top-8 right-4 w-3 h-3 rounded-full bg-green-400"></div>
-                    </>
-                )}
-
-                {config.accessoryId === 'hat_party' && (
-                        <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[24px] border-l-transparent border-r-[24px] border-r-transparent border-b-[60px] border-b-yellow-400 filter drop-shadow-md"></div>
-                )}
-
-                {config.accessoryId === 'headphones' && (
-                    <>
-                            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-44 h-28 border-[6px] border-slate-800 rounded-t-full -z-10"></div>
-                            <div className="absolute top-6 -left-6 w-10 h-16 bg-slate-800 rounded-xl border-l-4 border-slate-600"></div>
-                            <div className="absolute top-6 -right-6 w-10 h-16 bg-slate-800 rounded-xl border-r-4 border-slate-600"></div>
-                    </>
-                )}
-            </div>
+            {config.style === 'human' ? <RenderHuman /> : <RenderRobot />}
         </div>
 
         {/* Controls Overlay */}
@@ -428,11 +498,14 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
          isLive ? "Ask CodeBot a question..." : "You are in Mirror Mode. Practice speaking!"}
       </p>
 
-      {/* Style block for blink animation */}
+      {/* Style block for blink animation and hair clips */}
       <style>{`
         @keyframes blink {
             0%, 48%, 52%, 100% { opacity: 0; }
             50% { opacity: 1; }
+        }
+        .clip-path-bangs {
+            clip-path: polygon(0 0, 100% 0, 100% 60%, 70% 80%, 30% 80%, 0 60%);
         }
       `}</style>
     </div>

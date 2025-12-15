@@ -1,125 +1,224 @@
-import React from 'react';
-import { AvatarConfig, AvatarPart } from '../types';
-import { AVATAR_PARTS } from '../constants';
+import React, { useState } from 'react';
+import { AvatarConfig, UserProfile } from '../types';
+import { AVATAR_OPTIONS } from '../constants';
 import AvatarInterface from './AvatarInterface';
-import { Lock, Check } from 'lucide-react';
+import { User, Palette, Shirt, Smile, Box } from 'lucide-react';
 
 interface AvatarStudioProps {
   config: AvatarConfig;
   setConfig: (config: AvatarConfig) => void;
-  userLevel: number;
+  user: UserProfile;
+  setUser: (u: UserProfile) => void;
 }
 
-const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, userLevel }) => {
-  // Helper to check unlock status
-  const isUnlocked = (part: AvatarPart) => userLevel >= part.unlockLevel;
+const AvatarStudio: React.FC<AvatarStudioProps> = ({ config, setConfig, user, setUser }) => {
+  const [activeTab, setActiveTab] = useState<'base' | 'face' | 'hair' | 'gear'>('base');
 
-  const handleSelect = (part: AvatarPart) => {
-    if (!isUnlocked(part)) return;
-    
-    if (part.type === 'base') setConfig({ ...config, baseId: part.id });
-    if (part.type === 'color') setConfig({ ...config, color: part.id });
-    if (part.type === 'accessory') setConfig({ ...config, accessoryId: part.id });
+  const updateConfig = (key: keyof AvatarConfig, value: string) => {
+    setConfig({ ...config, [key]: value });
   };
 
-  const renderPartSection = (title: string, type: 'base' | 'color' | 'accessory') => (
-    <div className="mb-8">
-      <h3 className="font-bold text-slate-700 mb-3">{title}</h3>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        {AVATAR_PARTS.filter(p => p.type === type).map(part => {
-          const unlocked = isUnlocked(part);
-          const isSelected = 
-            (type === 'base' && config.baseId === part.id) ||
-            (type === 'color' && config.color === part.id) ||
-            (type === 'accessory' && config.accessoryId === part.id);
+  const ColorButton = ({ color, selected, onClick }: { color: string, selected: boolean, onClick: () => void }) => (
+    <button 
+        onClick={onClick}
+        className={`w-10 h-10 rounded-full border-4 shadow-sm transition-transform hover:scale-110 ${selected ? 'border-sky-500 scale-110' : 'border-white'}`}
+        style={{ backgroundColor: color }}
+    />
+  );
 
-          return (
-            <button
-              key={part.id}
-              onClick={() => handleSelect(part)}
-              disabled={!unlocked}
-              className={`relative p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 group ${
-                isSelected 
-                  ? 'border-indigo-500 bg-indigo-50 shadow-md' 
-                  : unlocked 
-                    ? 'border-slate-200 hover:border-indigo-300 bg-white hover:shadow-sm' 
-                    : 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed'
-              }`}
-            >
-              {/* Preview Icon/Shape */}
-              <div className={`w-12 h-12 flex items-center justify-center rounded-xl shadow-inner ${
-                 type === 'color' && part.previewColor ? part.previewColor : 'bg-slate-100'
-              }`}>
-                 {type === 'base' && (
-                    <div className={`w-8 h-8 bg-slate-400 border-2 border-slate-300 shadow-sm transition-all ${
-                        part.id === 'robot_round' ? 'rounded-full' : 
-                        part.id === 'robot_square' ? 'rounded-lg' : 'rounded-2xl'
-                    }`}></div>
-                 )}
-                 {type === 'accessory' && (
-                     <span className="text-xl font-bold text-slate-400">
-                        {part.id === 'none' ? '∅' : '+'}
-                     </span>
-                 )}
-              </div>
-              
-              <span className="text-xs font-bold text-slate-600 text-center leading-tight">{part.name}</span>
-              
-              {!unlocked && (
-                <div className="absolute top-2 right-2 text-slate-400">
-                  <Lock size={14} />
-                </div>
-              )}
-              {isSelected && (
-                <div className="absolute top-[-8px] right-[-8px] bg-indigo-500 text-white rounded-full p-1.5 shadow-md transform scale-100 transition-transform">
-                  <Check size={12} strokeWidth={4} />
-                </div>
-              )}
-              {!unlocked && (
-                 <div className="absolute inset-0 bg-white/40 flex items-center justify-center rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-lg">Lvl {part.unlockLevel}</span>
-                 </div>
-              )}
-            </button>
-          )
-        })}
-      </div>
-    </div>
+  const OptionButton = ({ label, selected, onClick, children }: { label: string, selected: boolean, onClick: () => void, children?: React.ReactNode }) => (
+      <button 
+        onClick={onClick}
+        className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all w-full aspect-square ${
+            selected ? 'border-sky-500 bg-sky-50 text-sky-800' : 'border-slate-100 bg-white text-slate-600 hover:border-sky-200'
+        }`}
+      >
+          <div className="mb-2">{children}</div>
+          <span className="text-xs font-bold">{label}</span>
+      </button>
   );
 
   return (
     <div className="h-full flex flex-col lg:flex-row gap-6">
-       {/* Preview Panel */}
+       
+       {/* Left: Preview & Identity */}
        <div className="lg:w-1/3 flex flex-col gap-4">
           <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-200">
-             <h3 className="text-center font-bold text-slate-800 mb-4">Live Preview</h3>
-             <div className="aspect-square bg-slate-900 rounded-3xl overflow-hidden relative shadow-inner">
-                 {/* Reusing AvatarInterface for the preview */}
-                 <div className="absolute inset-0 p-2">
-                     <AvatarInterface config={config} />
+             <div className="mb-4">
+                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Avatar Identity</label>
+                 <div className="mt-1 flex gap-2">
+                     <div className="bg-slate-100 p-2.5 rounded-xl text-slate-400"><User size={20}/></div>
+                     <input 
+                        type="text" 
+                        value={user.avatarName}
+                        onChange={(e) => setUser({...user, avatarName: e.target.value})}
+                        className="flex-1 bg-slate-100 border-transparent focus:bg-white focus:border-sky-400 border-2 rounded-xl px-4 font-bold text-slate-700 outline-none transition-colors"
+                        placeholder="Name your avatar..."
+                     />
                  </div>
              </div>
-             <p className="text-center text-slate-400 text-xs mt-4">
-                 Your avatar updates instantly across the app!
-             </p>
+
+             <div className="aspect-square bg-slate-900 rounded-3xl overflow-hidden relative shadow-inner">
+                 <div className="absolute inset-0 p-2">
+                     <AvatarInterface config={config} emotion='happy' />
+                 </div>
+             </div>
           </div>
        </div>
 
-       {/* Controls Panel */}
-       <div className="flex-1 bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200 overflow-y-auto">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
-              <div>
-                <h2 className="text-3xl font-bold text-slate-800">Customize CodeBot</h2>
-                <p className="text-slate-500">Unlock cool parts by completing coding missions!</p>
-              </div>
-              <div className="bg-amber-100 text-amber-800 px-4 py-2 rounded-full text-sm font-bold border border-amber-200 shadow-sm flex items-center gap-2">
-                <span>⭐ Level {userLevel} Unlocked</span>
-              </div>
+       {/* Right: Customization Tabs */}
+       <div className="flex-1 bg-white flex flex-col rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden">
+          
+          {/* Tabs */}
+          <div className="flex border-b border-slate-100 p-2 gap-2 bg-slate-50/50">
+              <button onClick={() => setActiveTab('base')} className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'base' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`}>
+                  <Box size={18} /> Model
+              </button>
+              <button onClick={() => setActiveTab('face')} className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'face' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`} disabled={config.style === 'robot'}>
+                  <Smile size={18} /> Skin & Eyes
+              </button>
+              <button onClick={() => setActiveTab('hair')} className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'hair' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`} disabled={config.style === 'robot'}>
+                  <Palette size={18} /> Hair
+              </button>
+              <button onClick={() => setActiveTab('gear')} className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'gear' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:bg-slate-100'}`}>
+                  <Shirt size={18} /> Style
+              </button>
           </div>
 
-          {renderPartSection("Body Model", 'base')}
-          {renderPartSection("Paint Job", 'color')}
-          {renderPartSection("Accessories", 'accessory')}
+          {/* Tab Content */}
+          <div className="flex-1 overflow-y-auto p-6 md:p-8">
+              
+              {activeTab === 'base' && (
+                  <div className="space-y-8">
+                      <div>
+                          <h4 className="font-bold text-slate-800 mb-4">Choose Style</h4>
+                          <div className="grid grid-cols-2 gap-4">
+                              {AVATAR_OPTIONS.styles.map(s => (
+                                  <button
+                                    key={s.id}
+                                    onClick={() => updateConfig('style', s.id)}
+                                    className={`p-4 rounded-2xl border-2 text-center font-bold transition-all ${config.style === s.id ? 'border-sky-500 bg-sky-50 text-sky-800' : 'border-slate-100 text-slate-500 hover:bg-slate-50'}`}
+                                  >
+                                      {s.name}
+                                  </button>
+                              ))}
+                          </div>
+                      </div>
+
+                      {config.style === 'robot' && (
+                          <>
+                            <div>
+                                <h4 className="font-bold text-slate-800 mb-4">Chassis Shape</h4>
+                                <div className="grid grid-cols-3 gap-4">
+                                    {AVATAR_OPTIONS.robotBases.map(base => (
+                                        <OptionButton 
+                                            key={base.id} 
+                                            label={base.name} 
+                                            selected={config.baseId === base.id}
+                                            onClick={() => updateConfig('baseId', base.id)}
+                                        >
+                                            <div className={`w-8 h-8 bg-slate-200 border-2 border-slate-300 ${base.id === 'robot_round' ? 'rounded-full' : base.id === 'robot_square' ? 'rounded-lg' : 'rounded-2xl'}`}></div>
+                                        </OptionButton>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-slate-800 mb-4">Paint Job</h4>
+                                <div className="flex flex-wrap gap-3">
+                                    {AVATAR_OPTIONS.robotColors.map(c => (
+                                        <div key={c.id} className={`w-12 h-12 rounded-full ${c.value} cursor-pointer border-4 ${config.color === c.id ? 'border-slate-800 shadow-lg scale-110' : 'border-transparent'}`} onClick={() => updateConfig('color', c.id)}></div>
+                                    ))}
+                                </div>
+                            </div>
+                          </>
+                      )}
+
+                      {config.style === 'human' && (
+                         <div className="bg-sky-50 border border-sky-100 rounded-2xl p-6 text-center text-sky-800">
+                             <h4 className="font-bold mb-2">You chose Human!</h4>
+                             <p className="text-sm">Use the tabs above to customize your skin, hair, and clothes.</p>
+                         </div>
+                      )}
+                  </div>
+              )}
+
+              {activeTab === 'face' && config.style === 'human' && (
+                  <div className="space-y-8">
+                       <div>
+                          <h4 className="font-bold text-slate-800 mb-4">Skin Tone</h4>
+                          <div className="flex flex-wrap gap-3">
+                              {AVATAR_OPTIONS.skinTones.map(t => (
+                                  <ColorButton key={t.id} color={t.value} selected={config.skinTone === t.id} onClick={() => updateConfig('skinTone', t.id)} />
+                              ))}
+                          </div>
+                       </div>
+                       <div>
+                          <h4 className="font-bold text-slate-800 mb-4">Eye Color</h4>
+                          <div className="flex flex-wrap gap-3">
+                              {AVATAR_OPTIONS.eyeColors.map(t => (
+                                  <ColorButton key={t.id} color={t.value} selected={config.eyeColor === t.id} onClick={() => updateConfig('eyeColor', t.id)} />
+                              ))}
+                          </div>
+                       </div>
+                  </div>
+              )}
+
+              {activeTab === 'hair' && config.style === 'human' && (
+                  <div className="space-y-8">
+                       <div>
+                          <h4 className="font-bold text-slate-800 mb-4">Hair Style</h4>
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                              {AVATAR_OPTIONS.hairStyles.map(h => (
+                                  <OptionButton key={h.id} label={h.name} selected={config.hairStyle === h.id} onClick={() => updateConfig('hairStyle', h.id)}>
+                                      <div className="w-8 h-8 bg-slate-200 rounded-full"></div>
+                                  </OptionButton>
+                              ))}
+                          </div>
+                       </div>
+                       <div>
+                          <h4 className="font-bold text-slate-800 mb-4">Hair Color</h4>
+                          <div className="flex flex-wrap gap-3">
+                              {AVATAR_OPTIONS.hairColors.map(t => (
+                                  <ColorButton key={t.id} color={t.value} selected={config.hairColor === t.id} onClick={() => updateConfig('hairColor', t.id)} />
+                              ))}
+                          </div>
+                       </div>
+                  </div>
+              )}
+
+              {activeTab === 'gear' && (
+                  <div className="space-y-8">
+                       {config.style === 'human' && (
+                           <div>
+                                <h4 className="font-bold text-slate-800 mb-4">Clothing</h4>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {AVATAR_OPTIONS.clothing.map(c => (
+                                        <button 
+                                            key={c.id} 
+                                            onClick={() => updateConfig('clothing', c.id)}
+                                            className={`p-3 rounded-xl border-2 text-left flex items-center gap-3 transition-all ${config.clothing === c.id ? 'border-sky-500 bg-sky-50' : 'border-slate-100 hover:bg-slate-50'}`}
+                                        >
+                                            <div className={`w-8 h-8 rounded-full ${c.value} border-2 border-white shadow-sm`}></div>
+                                            <span className="text-sm font-bold text-slate-700">{c.name}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                           </div>
+                       )}
+                       <div>
+                          <h4 className="font-bold text-slate-800 mb-4">Accessories</h4>
+                          <div className="grid grid-cols-3 gap-3">
+                              {AVATAR_OPTIONS.accessories.map(a => (
+                                  <OptionButton key={a.id} label={a.name} selected={config.accessoryId === a.id} onClick={() => updateConfig('accessoryId', a.id)}>
+                                      <span className="text-xl font-bold text-slate-300">{a.id === 'none' ? '∅' : '+'}</span>
+                                  </OptionButton>
+                              ))}
+                          </div>
+                       </div>
+                  </div>
+              )}
+
+          </div>
        </div>
     </div>
   );

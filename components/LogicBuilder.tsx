@@ -5,12 +5,15 @@ import { LogicEngine } from '../services/logicRuntime';
 import { 
     Play, RotateCcw, FastForward, Code as CodeIcon, 
     Trash2, GripVertical, Plus, Variable,
-    PlusCircle
+    PlusCircle, MonitorPlay
 } from 'lucide-react';
 
 interface LogicBuilderProps {
+  program: BlockInstance[];
+  setProgram: React.Dispatch<React.SetStateAction<BlockInstance[]>>;
   onCodeGenerated: (code: string) => void;
   setAvatarEmotion: (e: AvatarEmotion) => void;
+  onPresent: () => void; // New prop for Presentation Mode
 }
 
 // --- Drag Types ---
@@ -156,8 +159,7 @@ const LogicBlockNode: React.FC<{
 };
 
 // --- Main Builder Component ---
-const LogicBuilder: React.FC<LogicBuilderProps> = ({ onCodeGenerated, setAvatarEmotion }) => {
-  const [program, setProgram] = useState<BlockInstance[]>([]);
+const LogicBuilder: React.FC<LogicBuilderProps> = ({ program, setProgram, onCodeGenerated, setAvatarEmotion, onPresent }) => {
   const [engine, setEngine] = useState<LogicEngine | null>(null);
   const [runtimeState, setRuntimeState] = useState<RuntimeState>({
       variables: {}, consoleOutput: [], currentBlockId: null, isRunning: false, isFinished: false, error: null
@@ -340,6 +342,9 @@ const LogicBuilder: React.FC<LogicBuilderProps> = ({ onCodeGenerated, setAvatarE
           >
              {/* Toolbar */}
              <div className="absolute top-4 right-4 flex gap-2 z-20">
+                 <button onClick={onPresent} className="bg-sky-500 text-white p-2 rounded-full shadow hover:bg-sky-600" title="Presentation Mode">
+                     <MonitorPlay size={20} />
+                 </button>
                  <button onClick={handleReset} className="bg-white text-slate-600 p-2 rounded-full shadow hover:bg-slate-50" title="Reset">
                      <RotateCcw size={20} />
                  </button>

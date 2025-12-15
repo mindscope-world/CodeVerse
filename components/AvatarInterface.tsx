@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MicOff, Video, VideoOff, Sparkles, BrainCircuit, Check, Loader2 } from 'lucide-react';
+import { MicOff, Video, VideoOff, Sparkles, BrainCircuit, Check, Loader2, Disc, MessageSquare, Mic, Send } from 'lucide-react';
 import { GeminiLiveClient } from '../services/geminiService';
 import { AvatarConfig, AvatarEmotion } from '../types';
 import { DEFAULT_AVATAR_CONFIG, AVATAR_OPTIONS } from '../constants';
@@ -7,7 +7,8 @@ import { FilesetResolver, FaceLandmarker } from "@mediapipe/tasks-vision";
 
 interface AvatarInterfaceProps {
   config?: AvatarConfig;
-  emotion?: AvatarEmotion; // External override emotion (e.g., from CodeLab)
+  emotion?: AvatarEmotion; // External override emotion
+  isRecording?: boolean; // NEW: Visual state for recording
 }
 
 // Internal state for the visual engine
@@ -22,11 +23,15 @@ interface ExpressionState {
   detectedEmotion: AvatarEmotion | 'neutral';
 }
 
-const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVATAR_CONFIG, emotion: overrideEmotion = 'neutral' }) => {
+const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVATAR_CONFIG, emotion: overrideEmotion = 'neutral', isRecording = false }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isLive, setIsLive] = useState(false);
   const [modelLoading, setModelLoading] = useState(false);
+  
+  // Q&A State
+  const [showTextInput, setShowTextInput] = useState(false);
+  const [textInput, setTextInput] = useState("");
   
   // Avatar Rendering State
   const [expr, setExpr] = useState<ExpressionState>({
@@ -119,12 +124,10 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
 
           if (result.faceBlendshapes && result.faceBlendshapes.length > 0 && result.faceLandmarks.length > 0) {
               const shapes = result.faceBlendshapes[0].categories;
-              const landmarks = result.faceLandmarks[0]; // 478 points
+              const landmarks = result.faceLandmarks[0]; 
               
-              // Helper to find shape score
               const getShape = (name: string) => shapes.find(s => s.categoryName === name)?.score || 0;
 
-              // --- A. Map Blendshapes to Expressions ---
               const jawOpen = getShape('jawOpen');
               const smileLeft = getShape('mouthSmileLeft');
               const smileRight = getShape('mouthSmileRight');
@@ -136,33 +139,24 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
               const eyeLookUp = getShape('eyeLookUpLeft');
               const eyeLookDown = getShape('eyeLookDownLeft');
 
-              // Smoothing Factors
               const alpha = 0.2; 
               
               setExpr(prev => {
-                // 1. Mouth
                 const targetMouth = jawOpen;
-                
-                // 2. Eyebrows (Net lift: Up - Down)
                 const targetBrow = (browInnerUp + browOuterUpLeft) - browDownLeft;
-                
-                // 3. Eyes (Gaze)
-                const targetEyeX = (eyeLookInLeft - eyeLookOutLeft) * 2; // -1 to 1
+                const targetEyeX = (eyeLookInLeft - eyeLookOutLeft) * 2; 
                 const targetEyeY = (eyeLookDown - eyeLookUp) * 1.5;
 
-                // 4. Head Position (Simple estimation from nose landmark #1)
                 const nose = landmarks[1];
-                const targetHeadX = (nose.x - 0.5) * -100; // Inverted for mirror effect
+                const targetHeadX = (nose.x - 0.5) * -100; 
                 const targetHeadY = (nose.y - 0.5) * 80;
 
-                // 5. Head Tilt (Angle between eyes: Left #33, Right #263)
                 const leftEye = landmarks[33];
                 const rightEye = landmarks[263];
                 const dx = rightEye.x - leftEye.x;
                 const dy = rightEye.y - leftEye.y;
-                const targetTilt = (Math.atan2(dy, dx) * 180 / Math.PI) * -1; // Invert
+                const targetTilt = (Math.atan2(dy, dx) * 180 / Math.PI) * -1; 
 
-                // 6. Emotion Classifier
                 let emotion: AvatarEmotion = 'neutral';
                 const smile = (smileLeft + smileRight) / 2;
                 if (smile > 0.4) emotion = 'happy';
@@ -233,13 +227,8 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
     }
   };
 
-  // --- 4. Style Calculations ---
-  // If camera is OFF, we simulate expression based on 'overrideEmotion'
-  // If camera is ON, we use 'expr' state
-  
+  // --- 4. Render Helpers (Same as before) ---
   const currentEmotion = isCameraOn ? expr.detectedEmotion : overrideEmotion;
-
-  // Simulation values for Non-Camera mode
   const getSimulatedExpr = () => {
       switch(overrideEmotion) {
           case 'happy': return { mouth: 0.2, brow: 0.3, tilt: 5 };
@@ -260,24 +249,20 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
   const activeEyeX = isCameraOn ? expr.eyeX : 0;
   const activeEyeY = isCameraOn ? expr.eyeY : 0;
 
-  // Colors
   const getSkinColor = () => AVATAR_OPTIONS.skinTones.find(s => s.id === config.skinTone)?.value || '#fce5d4';
   const getHairColor = () => AVATAR_OPTIONS.hairColors.find(s => s.id === config.hairColor)?.value || '#5d4037';
   const getEyeColor = () => AVATAR_OPTIONS.eyeColors.find(s => s.id === config.eyeColor)?.value || '#2196f3';
   const getRobotColor = () => AVATAR_OPTIONS.robotColors.find(s => s.id === config.color)?.value || 'bg-indigo-500';
   const getClothingClass = () => AVATAR_OPTIONS.clothing.find(s => s.id === config.clothing)?.value || 'bg-blue-500';
 
-  // Dynamic Styles
   const getEyebrowStyle = () => {
-      const liftPx = activeBrow * -10; // Negative is up in CSS translate
+      const liftPx = activeBrow * -10; 
       const rotateDeg = activeBrow * 20;
-      
       const common = {
           backgroundColor: config.style === 'human' ? getHairColor() : undefined,
           className: config.style === 'human' ? '' : 'bg-slate-800',
           transition: 'transform 0.1s ease-out'
       };
-
       return {
           left: { ...common, transform: `translateY(${liftPx}px) rotate(${rotateDeg}deg)` },
           right: { ...common, transform: `translateY(${liftPx}px) rotate(${-rotateDeg}deg)` }
@@ -290,7 +275,6 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
     const radius = activeMouth > 0.2 ? '50%' : '10px';
     const bg = config.style === 'human' ? '#d84315' : 'white';
     
-    // Smile curve correction
     const borderRadius = currentEmotion === 'happy' && activeMouth < 0.2 ? '0 0 20px 20px' : radius;
     const borderTop = currentEmotion === 'sad' && activeMouth < 0.2 ? '4px solid' : '0';
 
@@ -309,8 +293,6 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
         transform: 'translateX(-50%)'
     };
   };
-
-  // --- Rendering Sub-Components ---
 
   const RenderAccessories = () => (
       <>
@@ -345,13 +327,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
             <div className="relative">
                 <div className="absolute -top-3 w-8 h-2 rounded-full z-10" style={getEyebrowStyle().left}></div>
                 <div className="w-8 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner">
-                <div 
-                    className="w-4 h-4 rounded-full transition-transform duration-75"
-                    style={{ 
-                        backgroundColor: config.style === 'robot' ? '#1e293b' : getEyeColor(),
-                        transform: `translate(${activeEyeX * 6}px, ${activeEyeY * 4}px)` 
-                    }}
-                >
+                <div className="w-4 h-4 rounded-full transition-transform duration-75" style={{ backgroundColor: config.style === 'robot' ? '#1e293b' : getEyeColor(), transform: `translate(${activeEyeX * 6}px, ${activeEyeY * 4}px)` }}>
                     <div className="w-1.5 h-1.5 bg-black rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
                     <div className="w-1 h-1 bg-white rounded-full absolute top-1 left-1 opacity-60"></div>
                 </div>
@@ -360,13 +336,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
             <div className="relative">
                 <div className="absolute -top-3 w-8 h-2 rounded-full z-10" style={getEyebrowStyle().right}></div>
                 <div className="w-8 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner">
-                <div 
-                    className="w-4 h-4 rounded-full transition-transform duration-75"
-                    style={{ 
-                        backgroundColor: config.style === 'robot' ? '#1e293b' : getEyeColor(),
-                        transform: `translate(${activeEyeX * 6}px, ${activeEyeY * 4}px)` 
-                    }}
-                >
+                <div className="w-4 h-4 rounded-full transition-transform duration-75" style={{ backgroundColor: config.style === 'robot' ? '#1e293b' : getEyeColor(), transform: `translate(${activeEyeX * 6}px, ${activeEyeY * 4}px)` }}>
                     <div className="w-1.5 h-1.5 bg-black rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
                     <div className="w-1 h-1 bg-white rounded-full absolute top-1 left-1 opacity-60"></div>
                 </div>
@@ -386,18 +356,14 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
                 <div className="absolute top-10 -right-6 w-16 h-24 rounded-full z-0 origin-top-left animate-bounce-slow" style={{ backgroundColor: getHairColor() }}></div>
             </>
         )}
-
-        {/* Body / Clothing - Stationary relative to head movement usually, but we move mostly head */}
+        {/* Body */}
         <div className={`absolute bottom-0 w-32 h-20 rounded-t-[3rem] z-10 shadow-sm ${getClothingClass()}`}>
             <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-10 h-8 z-0" style={{ backgroundColor: getSkinColor(), filter: 'brightness(0.9)' }}></div>
             {config.clothing === 'tshirt_blue' && <div className="absolute top-6 left-1/2 -translate-x-1/2 w-16 h-16 rounded-full border-4 border-white/20"></div>}
             {config.clothing === 'hoodie_gray' && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-20 h-2 bg-slate-800/20 rounded-b-lg"></div>}
         </div>
-
-        {/* Head Container */}
+        {/* Head */}
         <div className="absolute top-6 w-28 h-32 rounded-[2.5rem] z-20 flex flex-col items-center shadow-md origin-bottom" style={{ backgroundColor: getSkinColor() }}>
-            
-            {/* Hair Front Layer */}
             {config.hairStyle !== 'none' && (
                  <div className="absolute -top-2 w-32 h-16 z-30 pointer-events-none">
                      {config.hairStyle === 'short' && <div className="w-full h-full rounded-t-[3rem]" style={{ backgroundColor: getHairColor() }}></div>}
@@ -413,15 +379,12 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
                      )}
                  </div>
             )}
-
-            {/* Face Features */}
             <div className="mt-12 w-full flex flex-col items-center relative">
                  <RenderEyes />
                  <div className="w-2 h-2 rounded-full bg-black/10 mb-1"></div>
                  <div style={getMouthStyle()}></div>
             </div>
         </div>
-        
         <RenderAccessories />
     </div>
   );
@@ -435,30 +398,37 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
   );
 
   return (
-    <div className="bg-white rounded-3xl p-4 shadow-sm border border-sky-100 flex flex-col gap-4 relative overflow-hidden h-full">
+    <div className={`bg-white rounded-3xl p-4 shadow-sm border flex flex-col gap-4 relative overflow-hidden h-full transition-all duration-500 ${isRecording ? 'border-4 border-red-500 shadow-red-200' : 'border-sky-100'}`}>
       
       {/* Header */}
       <div className="flex justify-between items-center z-10 px-1 shrink-0">
         <h3 className="text-sm font-bold text-sky-800 flex items-center gap-2">
             My Avatar
             {isCameraOn && !modelLoading && <span className="flex h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>}
+            {isRecording && <span className="flex items-center gap-1 text-red-500 text-xs animate-pulse font-black"><Disc size={12} fill="currentColor"/> REC</span>}
         </h3>
-        <button 
-            onClick={() => setIsCameraOn(!isCameraOn)}
-            className={`p-2 rounded-full transition-colors ${isCameraOn ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-400'}`}
-            title={isCameraOn ? "Stop Mirroring" : "Start Mirroring"}
-        >
-            {modelLoading ? <Loader2 size={18} className="animate-spin" /> : isCameraOn ? <Video size={18} /> : <VideoOff size={18} />}
-        </button>
+        <div className="flex gap-2">
+            <button
+                onClick={() => setShowTextInput(!showTextInput)}
+                className={`p-2 rounded-full transition-colors ${showTextInput ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}
+                title="Type a message"
+            >
+                <MessageSquare size={18} />
+            </button>
+            <button 
+                onClick={() => setIsCameraOn(!isCameraOn)}
+                className={`p-2 rounded-full transition-colors ${isCameraOn ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-400'}`}
+                title={isCameraOn ? "Stop Mirroring" : "Start Mirroring"}
+            >
+                {modelLoading ? <Loader2 size={18} className="animate-spin" /> : isCameraOn ? <Video size={18} /> : <VideoOff size={18} />}
+            </button>
+        </div>
       </div>
 
-      {/* Video is processed in background, not shown directly (Privacy) */}
       <video ref={videoRef} autoPlay playsInline muted className="absolute opacity-0 pointer-events-none w-1 h-1" />
 
       {/* Main Visual Stage */}
       <div className="relative flex-1 min-h-[200px] bg-slate-900 rounded-2xl overflow-hidden shadow-inner group w-full mx-auto flex items-center justify-center">
-        
-        {/* Background Grid */}
         <div className="absolute inset-0 opacity-20" 
              style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
         </div>
@@ -478,13 +448,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
             </div>
         )}
 
-        {/* Detection Debug / Status */}
-        {isCameraOn && (
-            <div className="absolute top-4 left-4 z-0 text-[10px] text-white/50 font-mono">
-                {currentEmotion !== 'neutral' ? currentEmotion.toUpperCase() : ''}
-            </div>
-        )}
-
+        {/* Captions / Q&A Bubble */}
         {caption && (
              <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 w-full max-w-[90%] px-4">
                  <div className={`
@@ -498,7 +462,6 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
              </div>
         )}
 
-        {/* The Avatar Container */}
         <div 
             className="absolute z-20 pointer-events-none transition-transform duration-75 ease-out flex items-center justify-center"
             style={{ 
@@ -510,48 +473,60 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
 
         {/* Controls Overlay */}
         <div className="absolute bottom-4 left-0 right-0 flex justify-center z-30 pointer-events-auto gap-3">
-            <button 
-                onClick={toggleLiveSession}
-                disabled={!isCameraOn}
-                className={`flex items-center gap-2 px-6 py-2.5 rounded-full font-bold shadow-lg transition-all transform hover:scale-105 active:scale-95 text-sm ${
-                    !isCameraOn
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                    : isLive 
-                    ? 'bg-red-500 text-white hover:bg-red-600' 
-                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                }`}
-            >
-                {isLive ? (
-                    <>
-                        <MicOff size={16} /> End Chat
-                    </>
-                ) : (
-                    <>
-                        <Sparkles size={16} /> Ask CodeBot
-                    </>
-                )}
-            </button>
+             {showTextInput ? (
+                 <div className="flex items-center gap-2 bg-white/90 p-1.5 rounded-full shadow-lg backdrop-blur mx-4 w-full max-w-xs animate-in slide-in-from-bottom-5">
+                     <input 
+                        type="text" 
+                        value={textInput}
+                        onChange={(e) => setTextInput(e.target.value)}
+                        placeholder="Ask a coding question..."
+                        className="flex-1 bg-transparent border-none text-xs px-2 focus:outline-none"
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                // Simulate sending - in real app would send to Gemini text API
+                                setCaption(textInput);
+                                setTextInput("");
+                                setTimeout(() => {
+                                    setCaption("That's a great question! Let's break it down...");
+                                    setIsTurnComplete(true);
+                                    setTimeout(() => setIsTurnComplete(false), 3000);
+                                }, 1000);
+                            }
+                        }}
+                     />
+                     <button className="bg-indigo-500 text-white p-1.5 rounded-full hover:bg-indigo-600">
+                         <Send size={14} />
+                     </button>
+                 </div>
+             ) : (
+                <button 
+                    onClick={toggleLiveSession}
+                    disabled={!isCameraOn}
+                    className={`flex items-center gap-2 px-6 py-2.5 rounded-full font-bold shadow-lg transition-all transform hover:scale-105 active:scale-95 text-sm ${
+                        !isCameraOn
+                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                        : isLive 
+                        ? 'bg-red-500 text-white hover:bg-red-600' 
+                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    }`}
+                >
+                    {isLive ? <><MicOff size={16} /> End Chat</> : <><Sparkles size={16} /> Ask CodeBot</>}
+                </button>
+             )}
         </div>
       </div>
       
       <p className="text-center text-slate-500 text-xs shrink-0">
-         {modelLoading ? "Initializing Vision Engine..." : 
+         {isRecording ? "🔴 Recording explanation..." : 
+          modelLoading ? "Initializing Vision Engine..." : 
           !isCameraOn ? "Turn on camera to control avatar expression" : 
           "Processing on-device. Privacy protected."}
       </p>
 
-      {/* Style block for hair clips */}
       <style>{`
-        .clip-path-bangs {
-            clip-path: polygon(0 0, 100% 0, 100% 60%, 70% 80%, 30% 80%, 0 60%);
-        }
-        @keyframes bounce-slow {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-5px); }
-        }
-        .animate-bounce-slow {
-            animation: bounce-slow 2s infinite ease-in-out;
-        }
+        .clip-path-bangs { clip-path: polygon(0 0, 100% 0, 100% 60%, 70% 80%, 30% 80%, 0 60%); }
+        @keyframes bounce-slow { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+        .animate-bounce-slow { animation: bounce-slow 2s infinite ease-in-out; }
       `}</style>
     </div>
   );

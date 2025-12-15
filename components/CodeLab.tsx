@@ -1,25 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Play, HelpCircle, Save, CheckCircle, RefreshCcw, AlertTriangle } from 'lucide-react';
+import { Play, HelpCircle, Save, CheckCircle, RefreshCcw, AlertTriangle, MonitorPlay } from 'lucide-react';
 import { generateCodeExplanation } from '../services/geminiService';
 import { runPythonCode } from '../services/pythonInterpreter';
 import { AvatarEmotion } from '../types';
 
 interface CodeLabProps {
-  initialCode?: string;
+  code: string;
+  setCode: (code: string) => void;
   setAvatarEmotion: (e: AvatarEmotion) => void;
+  onPresent: () => void;
 }
 
-const CodeLab: React.FC<CodeLabProps> = ({ initialCode, setAvatarEmotion }) => {
-  const [code, setCode] = useState(initialCode || "# Start typing your Python code here...\n\nprint('Hello World')");
+const CodeLab: React.FC<CodeLabProps> = ({ code, setCode, setAvatarEmotion, onPresent }) => {
   const [output, setOutput] = useState<string[]>([]);
   const [explanation, setExplanation] = useState<string | null>(null);
   const [loadingExpl, setLoadingExpl] = useState(false);
   const [hasError, setHasError] = useState(false);
-
-  // Update internal state if props change (from LogicBuilder)
-  useEffect(() => {
-    if (initialCode) setCode(initialCode);
-  }, [initialCode]);
 
   const runCode = () => {
     setOutput(["> Initializing runtime...", "> Running code..."]);
@@ -62,7 +58,7 @@ const CodeLab: React.FC<CodeLabProps> = ({ initialCode, setAvatarEmotion }) => {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
       {/* Editor Side */}
       <div className="flex flex-col gap-4">
-        <div className="bg-slate-800 rounded-3xl p-1 shadow-xl flex-1 flex flex-col overflow-hidden">
+        <div className="bg-slate-800 rounded-3xl p-1 shadow-xl flex-1 flex flex-col overflow-hidden relative group">
             <div className="bg-slate-900 px-6 py-3 flex justify-between items-center">
                 <div className="flex gap-2">
                     <div className="w-3 h-3 rounded-full bg-red-500"></div>
@@ -70,6 +66,9 @@ const CodeLab: React.FC<CodeLabProps> = ({ initialCode, setAvatarEmotion }) => {
                     <div className="w-3 h-3 rounded-full bg-green-500"></div>
                 </div>
                 <span className="text-slate-400 text-xs font-mono">main.py</span>
+                <button onClick={onPresent} className="text-slate-400 hover:text-white transition-colors" title="Presentation Mode">
+                    <MonitorPlay size={16} />
+                </button>
             </div>
             <textarea
                 value={code}

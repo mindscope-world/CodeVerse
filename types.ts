@@ -12,7 +12,9 @@ export enum AppView {
   DASHBOARD = 'DASHBOARD',
   LOGIC_BUILDER = 'LOGIC_BUILDER',
   CODE_LAB = 'CODE_LAB',
-  AVATAR_STUDIO = 'AVATAR_STUDIO'
+  AVATAR_STUDIO = 'AVATAR_STUDIO',
+  PRESENTATION = 'PRESENTATION',
+  BRAIN_BUILDER = 'BRAIN_BUILDER'
 }
 
 export type AvatarEmotion = 'neutral' | 'happy' | 'sad' | 'thinking' | 'surprised' | 'focused';
@@ -87,4 +89,34 @@ export interface RuntimeState {
   isRunning: boolean;
   isFinished: boolean;
   error: string | null;
+}
+
+// --- Intelligence Layer Types ---
+
+export interface KPINode {
+  id: string;
+  label: string;
+  weight: number; // 0-100 relevance
+  children?: KPINode[];
+}
+
+export interface BusinessRule {
+  id: string;
+  condition: string; // e.g. "Energy < 20%"
+  action: string;    // e.g. "Trigger Sleep Mode"
+  priority: 'High' | 'Medium' | 'Low';
+  active: boolean;
+}
+
+export interface DecisionContext {
+  allowAutonomousMovement: boolean;
+  requireHumanApproval: boolean; // For critical actions
+  temporalMemoryWindow: number;  // Seconds to look back
+  riskTolerance: 'Low' | 'Medium' | 'High';
+}
+
+export interface IntelligenceModel {
+  kpiTree: KPINode[];
+  rules: BusinessRule[];
+  context: DecisionContext;
 }

@@ -1,151 +1,195 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Video, VideoOff, Sparkles, BrainCircuit, Check } from 'lucide-react';
+import { MicOff, Video, VideoOff, Sparkles, BrainCircuit, Check, Loader2 } from 'lucide-react';
 import { GeminiLiveClient } from '../services/geminiService';
 import { AvatarConfig, AvatarEmotion } from '../types';
 import { DEFAULT_AVATAR_CONFIG, AVATAR_OPTIONS } from '../constants';
+import { FilesetResolver, FaceLandmarker } from "@mediapipe/tasks-vision";
 
 interface AvatarInterfaceProps {
   config?: AvatarConfig;
-  emotion?: AvatarEmotion;
+  emotion?: AvatarEmotion; // External override emotion (e.g., from CodeLab)
 }
 
-const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVATAR_CONFIG, emotion = 'neutral' }) => {
+// Internal state for the visual engine
+interface ExpressionState {
+  mouthOpen: number;     // 0.0 - 1.0
+  eyebrowLift: number;   // -1.0 (angry) to 1.0 (surprised)
+  eyeX: number;          // -1.0 (left) to 1.0 (right)
+  eyeY: number;          // -1.0 (up) to 1.0 (down)
+  headTilt: number;      // degrees
+  headX: number;         // pixels
+  headY: number;         // pixels
+  detectedEmotion: AvatarEmotion | 'neutral';
+}
+
+const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVATAR_CONFIG, emotion: overrideEmotion = 'neutral' }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isLive, setIsLive] = useState(false);
+  const [modelLoading, setModelLoading] = useState(false);
   
-  // Avatar State
-  const [mouthOpen, setMouthOpen] = useState(0);
-  const [headPos, setHeadPos] = useState({ x: 0, y: 0 });
+  // Avatar Rendering State
+  const [expr, setExpr] = useState<ExpressionState>({
+    mouthOpen: 0, eyebrowLift: 0, eyeX: 0, eyeY: 0, headTilt: 0, headX: 0, headY: 0, detectedEmotion: 'neutral'
+  });
+  
   const [aiSpeaking, setAiSpeaking] = useState(false);
-  
-  // Caption State
   const [caption, setCaption] = useState("");
   const [isTurnComplete, setIsTurnComplete] = useState(false);
+  
+  // Refs
+  const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
+  const requestRef = useRef<number>(0);
+  const lastVideoTimeRef = useRef<number>(-1);
+  const liveClient = useRef<any>(null);
   const captionResetTimer = useRef<number | null>(null);
 
-  // Audio Refs
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const dataArrayRef = useRef<Uint8Array | null>(null);
-  const animationFrameRef = useRef<number>(0);
-  const liveClient = useRef<any>(null);
+  // --- 1. Initialize Computer Vision (MediaPipe) ---
+  useEffect(() => {
+    const loadModel = async () => {
+      if (faceLandmarkerRef.current) return;
+      
+      setModelLoading(true);
+      try {
+        const filesetResolver = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm"
+        );
+        faceLandmarkerRef.current = await FaceLandmarker.createFromOptions(filesetResolver, {
+          baseOptions: {
+            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+            delegate: "GPU"
+          },
+          outputFaceBlendshapes: true,
+          runningMode: "VIDEO",
+          numFaces: 1
+        });
+        console.log("Face Landmarker Loaded");
+      } catch (err) {
+        console.error("Failed to load Face Landmarker", err);
+      } finally {
+        setModelLoading(false);
+      }
+    };
+    
+    if (isCameraOn) {
+      loadModel();
+    }
+  }, [isCameraOn]);
 
-  // Motion Tracking Constants
-  const MOTION_THRESHOLD = 20;
-  const MOTION_SMOOTHING = 0.1;
-  const DOWNSAMPLE_SIZE = 32;
-
-  // 1. Setup Camera & Audio for Mirroring
+  // --- 2. Camera & Tracking Loop ---
   useEffect(() => {
     let stream: MediaStream | null = null;
 
-    const startMedia = async () => {
+    const startCamera = async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 }, audio: false });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
-
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        const audioCtx = new AudioContextClass();
-        const source = audioCtx.createMediaStreamSource(stream);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 32;
-        source.connect(analyser);
-        
-        audioContextRef.current = audioCtx;
-        analyserRef.current = analyser;
-        dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
-
-        setIsCameraOn(true);
       } catch (err) {
-        console.error("Media access denied:", err);
+        console.error("Camera denied:", err);
         setIsCameraOn(false);
       }
     };
 
     if (isCameraOn) {
-      startMedia();
+      startCamera();
+      requestRef.current = requestAnimationFrame(predictWebcam);
     } else {
       if (videoRef.current) videoRef.current.srcObject = null;
+      cancelAnimationFrame(requestRef.current);
     }
 
     return () => {
       if (stream) stream.getTracks().forEach(t => t.stop());
-      if (audioContextRef.current) audioContextRef.current.close();
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      cancelAnimationFrame(requestRef.current);
     };
   }, [isCameraOn]);
 
-  // 2. Processing Loop (Motion + Audio)
-  useEffect(() => {
-    if (!isCameraOn) return;
+  const predictWebcam = () => {
+    const video = videoRef.current;
+    const landmarker = faceLandmarkerRef.current;
+    
+    if (video && landmarker && video.currentTime !== lastVideoTimeRef.current) {
+      lastVideoTimeRef.current = video.currentTime;
+      
+      try {
+          const startTimeMs = performance.now();
+          const result = landmarker.detectForVideo(video, startTimeMs);
 
-    let prevFrameData: Uint8ClampedArray | null = null;
-    let targetX = 0;
-    let targetY = 0;
-
-    const loop = () => {
-      if (analyserRef.current && dataArrayRef.current) {
-        analyserRef.current.getByteFrequencyData(dataArrayRef.current);
-        const average = dataArrayRef.current.reduce((a, b) => a + b, 0) / dataArrayRef.current.length;
-        const val = Math.max(0, (average - 10) / 50); 
-        setMouthOpen(prev => prev * 0.7 + val * 0.3);
-      }
-
-      if (videoRef.current && canvasRef.current) {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
-        if (ctx && video.readyState === 4) {
-          ctx.drawImage(video, 0, 0, DOWNSAMPLE_SIZE, DOWNSAMPLE_SIZE);
-          const frameData = ctx.getImageData(0, 0, DOWNSAMPLE_SIZE, DOWNSAMPLE_SIZE).data;
-
-          if (prevFrameData) {
-            let xSum = 0, ySum = 0, count = 0;
-            
-            for (let i = 0; i < frameData.length; i += 4) {
-              const rDiff = Math.abs(frameData[i] - prevFrameData[i]);
-              const gDiff = Math.abs(frameData[i+1] - prevFrameData[i+1]);
-              const bDiff = Math.abs(frameData[i+2] - prevFrameData[i+2]);
+          if (result.faceBlendshapes && result.faceBlendshapes.length > 0 && result.faceLandmarks.length > 0) {
+              const shapes = result.faceBlendshapes[0].categories;
+              const landmarks = result.faceLandmarks[0]; // 478 points
               
-              if (rDiff + gDiff + bDiff > MOTION_THRESHOLD) {
-                const pixelIndex = i / 4;
-                const x = pixelIndex % DOWNSAMPLE_SIZE;
-                const y = Math.floor(pixelIndex / DOWNSAMPLE_SIZE);
-                xSum += x;
-                ySum += y;
-                count++;
-              }
-            }
+              // Helper to find shape score
+              const getShape = (name: string) => shapes.find(s => s.categoryName === name)?.score || 0;
 
-            if (count > 0) {
-              const avgX = xSum / count;
-              const avgY = ySum / count;
+              // --- A. Map Blendshapes to Expressions ---
+              const jawOpen = getShape('jawOpen');
+              const smileLeft = getShape('mouthSmileLeft');
+              const smileRight = getShape('mouthSmileRight');
+              const browInnerUp = getShape('browInnerUp');
+              const browOuterUpLeft = getShape('browOuterUpLeft');
+              const browDownLeft = getShape('browDownLeft');
+              const eyeLookInLeft = getShape('eyeLookInLeft');
+              const eyeLookOutLeft = getShape('eyeLookOutLeft');
+              const eyeLookUp = getShape('eyeLookUpLeft');
+              const eyeLookDown = getShape('eyeLookDownLeft');
+
+              // Smoothing Factors
+              const alpha = 0.2; 
               
-              targetX = -1 * ((avgX / DOWNSAMPLE_SIZE) - 0.5) * 40; 
-              targetY = ((avgY / DOWNSAMPLE_SIZE) - 0.5) * 30;
-            }
+              setExpr(prev => {
+                // 1. Mouth
+                const targetMouth = jawOpen;
+                
+                // 2. Eyebrows (Net lift: Up - Down)
+                const targetBrow = (browInnerUp + browOuterUpLeft) - browDownLeft;
+                
+                // 3. Eyes (Gaze)
+                const targetEyeX = (eyeLookInLeft - eyeLookOutLeft) * 2; // -1 to 1
+                const targetEyeY = (eyeLookDown - eyeLookUp) * 1.5;
+
+                // 4. Head Position (Simple estimation from nose landmark #1)
+                const nose = landmarks[1];
+                const targetHeadX = (nose.x - 0.5) * -100; // Inverted for mirror effect
+                const targetHeadY = (nose.y - 0.5) * 80;
+
+                // 5. Head Tilt (Angle between eyes: Left #33, Right #263)
+                const leftEye = landmarks[33];
+                const rightEye = landmarks[263];
+                const dx = rightEye.x - leftEye.x;
+                const dy = rightEye.y - leftEye.y;
+                const targetTilt = (Math.atan2(dy, dx) * 180 / Math.PI) * -1; // Invert
+
+                // 6. Emotion Classifier
+                let emotion: AvatarEmotion = 'neutral';
+                const smile = (smileLeft + smileRight) / 2;
+                if (smile > 0.4) emotion = 'happy';
+                else if (browInnerUp > 0.4 && jawOpen > 0.2) emotion = 'surprised';
+                else if (browDownLeft > 0.5) emotion = 'focused';
+                else if (targetBrow < -0.2) emotion = 'thinking';
+
+                return {
+                    mouthOpen: prev.mouthOpen + (targetMouth - prev.mouthOpen) * alpha,
+                    eyebrowLift: prev.eyebrowLift + (targetBrow - prev.eyebrowLift) * alpha,
+                    eyeX: prev.eyeX + (targetEyeX - prev.eyeX) * alpha,
+                    eyeY: prev.eyeY + (targetEyeY - prev.eyeY) * alpha,
+                    headX: prev.headX + (targetHeadX - prev.headX) * alpha,
+                    headY: prev.headY + (targetHeadY - prev.headY) * alpha,
+                    headTilt: prev.headTilt + (targetTilt - prev.headTilt) * alpha,
+                    detectedEmotion: emotion
+                };
+              });
           }
-          prevFrameData = frameData;
-        }
+      } catch (e) {
+        console.warn("Tracking error", e);
       }
+    }
+    requestRef.current = requestAnimationFrame(predictWebcam);
+  };
 
-      setHeadPos(prev => ({
-        x: prev.x + (targetX - prev.x) * MOTION_SMOOTHING,
-        y: prev.y + (targetY - prev.y) * MOTION_SMOOTHING
-      }));
-
-      animationFrameRef.current = requestAnimationFrame(loop);
-    };
-
-    loop();
-  }, [isCameraOn]);
-
+  // --- 3. Live Audio Integration (Gemini) ---
   const toggleLiveSession = async () => {
     if (isLive) {
       if (liveClient.current) {
@@ -164,9 +208,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       
       try {
         const connection = await client.connect({
-            onAudioData: (level) => {
-               setAiSpeaking(level > 0.05);
-            },
+            onAudioData: (level) => setAiSpeaking(level > 0.05),
             onCaption: (text, isUser, turnComplete) => {
                 if (turnComplete) {
                     setIsTurnComplete(true);
@@ -191,85 +233,96 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
     }
   };
 
-  // --- Dynamic Styling Helpers ---
+  // --- 4. Style Calculations ---
+  // If camera is OFF, we simulate expression based on 'overrideEmotion'
+  // If camera is ON, we use 'expr' state
+  
+  const currentEmotion = isCameraOn ? expr.detectedEmotion : overrideEmotion;
+
+  // Simulation values for Non-Camera mode
+  const getSimulatedExpr = () => {
+      switch(overrideEmotion) {
+          case 'happy': return { mouth: 0.2, brow: 0.3, tilt: 5 };
+          case 'sad': return { mouth: 0, brow: -0.3, tilt: -10 };
+          case 'surprised': return { mouth: 0.5, brow: 0.8, tilt: 0 };
+          case 'focused': return { mouth: 0, brow: -0.5, tilt: 0 };
+          case 'thinking': return { mouth: 0, brow: -0.2, tilt: 15 };
+          default: return { mouth: 0, brow: 0, tilt: 0 };
+      }
+  };
+
+  const sim = getSimulatedExpr();
+  const activeMouth = isCameraOn ? expr.mouthOpen : sim.mouth;
+  const activeBrow = isCameraOn ? expr.eyebrowLift : sim.brow;
+  const activeTilt = isCameraOn ? expr.headTilt : sim.tilt;
+  const activeHeadX = isCameraOn ? expr.headX : 0;
+  const activeHeadY = isCameraOn ? expr.headY : 0;
+  const activeEyeX = isCameraOn ? expr.eyeX : 0;
+  const activeEyeY = isCameraOn ? expr.eyeY : 0;
+
+  // Colors
   const getSkinColor = () => AVATAR_OPTIONS.skinTones.find(s => s.id === config.skinTone)?.value || '#fce5d4';
   const getHairColor = () => AVATAR_OPTIONS.hairColors.find(s => s.id === config.hairColor)?.value || '#5d4037';
   const getEyeColor = () => AVATAR_OPTIONS.eyeColors.find(s => s.id === config.eyeColor)?.value || '#2196f3';
   const getRobotColor = () => AVATAR_OPTIONS.robotColors.find(s => s.id === config.color)?.value || 'bg-indigo-500';
   const getClothingClass = () => AVATAR_OPTIONS.clothing.find(s => s.id === config.clothing)?.value || 'bg-blue-500';
 
+  // Dynamic Styles
   const getEyebrowStyle = () => {
-      const base = "absolute -top-3 w-8 h-2 rounded-full transition-all duration-500";
-      const color = config.style === 'human' ? getHairColor() : 'bg-slate-800';
-      const style = { backgroundColor: config.style === 'human' ? getHairColor() : undefined, className: config.style === 'human' ? '' : 'bg-slate-800' };
+      const liftPx = activeBrow * -10; // Negative is up in CSS translate
+      const rotateDeg = activeBrow * 20;
+      
+      const common = {
+          backgroundColor: config.style === 'human' ? getHairColor() : undefined,
+          className: config.style === 'human' ? '' : 'bg-slate-800',
+          transition: 'transform 0.1s ease-out'
+      };
 
-      // Helper to merge transforms
-      const t = (trans: string) => ({ ...style, transform: trans });
-
-      switch(emotion) {
-          case 'happy': return { left: t('translateY(-6px) rotate(12deg)'), right: t('translateY(-6px) rotate(-12deg)') };
-          case 'sad': return { left: t('translateY(4px) rotate(-12deg)'), right: t('translateY(4px) rotate(12deg)') };
-          case 'focused': return { left: t('translateY(8px) rotate(12deg)'), right: t('translateY(8px) rotate(-12deg)') };
-          case 'thinking': return { left: t('translateY(-2px)'), right: t('translateY(4px) rotate(-6deg)') };
-          case 'surprised': return { left: t('translateY(-12px)'), right: t('translateY(-12px)') };
-          default: return { left: t('translateY(0)'), right: t('translateY(0)') };
-      }
+      return {
+          left: { ...common, transform: `translateY(${liftPx}px) rotate(${rotateDeg}deg)` },
+          right: { ...common, transform: `translateY(${liftPx}px) rotate(${-rotateDeg}deg)` }
+      };
   };
 
   const getMouthStyle = () => {
-    const baseWidth = Math.max(20, mouthOpen * 50);
-    const baseHeight = Math.max(4, mouthOpen * 40);
+    const width = 20 + (activeMouth * 40);
+    const height = 4 + (activeMouth * 30);
+    const radius = activeMouth > 0.2 ? '50%' : '10px';
     const bg = config.style === 'human' ? '#d84315' : 'white';
     
-    let style: React.CSSProperties = {
-        width: `${baseWidth}px`,
-        height: `${baseHeight}px`,
+    // Smile curve correction
+    const borderRadius = currentEmotion === 'happy' && activeMouth < 0.2 ? '0 0 20px 20px' : radius;
+    const borderTop = currentEmotion === 'sad' && activeMouth < 0.2 ? '4px solid' : '0';
+
+    return {
+        width: `${width}px`,
+        height: `${height}px`,
+        borderRadius: borderRadius,
+        backgroundColor: activeMouth < 0.1 && (currentEmotion === 'happy' || currentEmotion === 'sad') ? 'transparent' : bg,
+        borderBottom: currentEmotion === 'happy' && activeMouth < 0.1 ? `4px solid ${bg}` : 'none',
+        borderTop: borderTop,
+        borderColor: bg,
         transition: 'all 0.1s ease-out',
-        backgroundColor: bg,
-        position: 'absolute',
+        position: 'absolute' as const,
         bottom: '25px',
         left: '50%',
         transform: 'translateX(-50%)'
     };
-
-    if (mouthOpen < 0.1) {
-        // Static Emotions
-        style.backgroundColor = 'transparent';
-        const stroke = config.style === 'human' ? '#d84315' : 'white';
-        
-        switch(emotion) {
-            case 'happy': 
-                return { ...style, width: '24px', height: '12px', borderRadius: '0 0 20px 20px', borderBottom: `4px solid ${stroke}` };
-            case 'sad':
-                return { ...style, width: '24px', height: '12px', borderRadius: '20px 20px 0 0', borderTop: `4px solid ${stroke}`, bottom: '20px' };
-            case 'surprised':
-                return { ...style, width: '16px', height: '16px', borderRadius: '50%', backgroundColor: stroke, bottom: '25px' };
-            case 'focused':
-                return { ...style, width: '20px', height: '4px', borderRadius: '2px', backgroundColor: stroke, bottom: '28px' };
-            default: // Neutral
-                return { ...style, width: '20px', height: '4px', borderRadius: '2px', backgroundColor: stroke, bottom: '28px' };
-        }
-    }
-    // Talking
-    return { ...style, borderRadius: mouthOpen > 0.5 ? '50%' : '12px', backgroundColor: bg };
   };
 
-  const eyebrows = getEyebrowStyle();
-  const mouthStyle = getMouthStyle();
-
-  // --- Render Components ---
+  // --- Rendering Sub-Components ---
 
   const RenderAccessories = () => (
       <>
         {config.accessoryId === 'glasses' && (
-             <div className="absolute top-[35%] left-1/2 -translate-x-1/2 w-28 h-10 flex justify-between items-center z-20">
+             <div className="absolute top-[35%] left-1/2 -translate-x-1/2 w-28 h-10 flex justify-between items-center z-20 pointer-events-none">
                  <div className="w-10 h-10 rounded-full border-4 border-slate-800 bg-black/10"></div>
                  <div className="w-4 h-1 bg-slate-800"></div>
                  <div className="w-10 h-10 rounded-full border-4 border-slate-800 bg-black/10"></div>
              </div>
         )}
         {config.accessoryId === 'hat_party' && (
-             <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[24px] border-l-transparent border-r-[24px] border-r-transparent border-b-[60px] border-b-yellow-400 filter drop-shadow-md z-30"></div>
+             <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[24px] border-l-transparent border-r-[24px] border-r-transparent border-b-[60px] border-b-yellow-400 filter drop-shadow-md z-30" style={{ transform: `rotate(${-activeTilt}deg)` }}></div>
         )}
         {config.accessoryId === 'antenna_simple' && (
             <div className="absolute -top-6 left-1/2 -translate-x-1/2 flex flex-col items-center z-10">
@@ -287,25 +340,38 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       </>
   );
 
-  const RenderRobot = () => (
-      <div className={`relative transition-all duration-300 ${getRobotColor()} ${config.baseId === 'robot_round' ? 'rounded-full' : config.baseId === 'robot_square' ? 'rounded-3xl' : 'rounded-[2.5rem]'} w-36 h-36 border-4 border-white flex flex-col items-center justify-center shadow-lg`}>
-          {/* Eyes */}
-          <div className="flex gap-5 mb-4 relative z-10">
-               <div className="relative">
-                   <div className="absolute -top-3 w-8 h-2 bg-slate-800 rounded-full" style={eyebrows.left}></div>
-                   <div className={`w-8 h-8 bg-white rounded-full flex items-center justify-center overflow-hidden`}>
-                      <div className={`w-3 h-3 rounded-full transition-transform duration-75 bg-slate-900`} style={{ transform: `translate(${headPos.x * 0.5}px, ${headPos.y * 0.5}px)` }}></div>
-                   </div>
-               </div>
-               <div className="relative">
-                   <div className="absolute -top-3 w-8 h-2 bg-slate-800 rounded-full" style={eyebrows.right}></div>
-                   <div className={`w-8 h-8 bg-white rounded-full flex items-center justify-center overflow-hidden`}>
-                      <div className={`w-3 h-3 rounded-full transition-transform duration-75 bg-slate-900`} style={{ transform: `translate(${headPos.x * 0.5}px, ${headPos.y * 0.5}px)` }}></div>
-                   </div>
-               </div>
-          </div>
-          <div style={mouthStyle}></div>
-          <RenderAccessories />
+  const RenderEyes = () => (
+      <div className="flex gap-4 mb-2 relative z-20">
+            <div className="relative">
+                <div className="absolute -top-3 w-8 h-2 rounded-full z-10" style={getEyebrowStyle().left}></div>
+                <div className="w-8 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner">
+                <div 
+                    className="w-4 h-4 rounded-full transition-transform duration-75"
+                    style={{ 
+                        backgroundColor: config.style === 'robot' ? '#1e293b' : getEyeColor(),
+                        transform: `translate(${activeEyeX * 6}px, ${activeEyeY * 4}px)` 
+                    }}
+                >
+                    <div className="w-1.5 h-1.5 bg-black rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
+                    <div className="w-1 h-1 bg-white rounded-full absolute top-1 left-1 opacity-60"></div>
+                </div>
+                </div>
+            </div>
+            <div className="relative">
+                <div className="absolute -top-3 w-8 h-2 rounded-full z-10" style={getEyebrowStyle().right}></div>
+                <div className="w-8 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner">
+                <div 
+                    className="w-4 h-4 rounded-full transition-transform duration-75"
+                    style={{ 
+                        backgroundColor: config.style === 'robot' ? '#1e293b' : getEyeColor(),
+                        transform: `translate(${activeEyeX * 6}px, ${activeEyeY * 4}px)` 
+                    }}
+                >
+                    <div className="w-1.5 h-1.5 bg-black rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
+                    <div className="w-1 h-1 bg-white rounded-full absolute top-1 left-1 opacity-60"></div>
+                </div>
+                </div>
+            </div>
       </div>
   );
 
@@ -316,22 +382,20 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
         {config.hairStyle === 'bob' && <div className="absolute top-8 w-36 h-28 rounded-b-[3rem] z-0" style={{ backgroundColor: getHairColor() }}></div>}
         {config.hairStyle === 'pigtails' && (
             <>
-                <div className="absolute top-10 -left-6 w-16 h-24 rounded-full z-0" style={{ backgroundColor: getHairColor() }}></div>
-                <div className="absolute top-10 -right-6 w-16 h-24 rounded-full z-0" style={{ backgroundColor: getHairColor() }}></div>
+                <div className="absolute top-10 -left-6 w-16 h-24 rounded-full z-0 origin-top-right animate-bounce-slow" style={{ backgroundColor: getHairColor() }}></div>
+                <div className="absolute top-10 -right-6 w-16 h-24 rounded-full z-0 origin-top-left animate-bounce-slow" style={{ backgroundColor: getHairColor() }}></div>
             </>
         )}
 
-        {/* Body / Clothing */}
+        {/* Body / Clothing - Stationary relative to head movement usually, but we move mostly head */}
         <div className={`absolute bottom-0 w-32 h-20 rounded-t-[3rem] z-10 shadow-sm ${getClothingClass()}`}>
-            {/* Neck */}
             <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-10 h-8 z-0" style={{ backgroundColor: getSkinColor(), filter: 'brightness(0.9)' }}></div>
-            {/* Detail */}
             {config.clothing === 'tshirt_blue' && <div className="absolute top-6 left-1/2 -translate-x-1/2 w-16 h-16 rounded-full border-4 border-white/20"></div>}
             {config.clothing === 'hoodie_gray' && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-20 h-2 bg-slate-800/20 rounded-b-lg"></div>}
         </div>
 
-        {/* Head */}
-        <div className="absolute top-6 w-28 h-32 rounded-[2.5rem] z-20 flex flex-col items-center shadow-md" style={{ backgroundColor: getSkinColor() }}>
+        {/* Head Container */}
+        <div className="absolute top-6 w-28 h-32 rounded-[2.5rem] z-20 flex flex-col items-center shadow-md origin-bottom" style={{ backgroundColor: getSkinColor() }}>
             
             {/* Hair Front Layer */}
             {config.hairStyle !== 'none' && (
@@ -352,51 +416,22 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
 
             {/* Face Features */}
             <div className="mt-12 w-full flex flex-col items-center relative">
-                 {/* Eyes */}
-                 <div className="flex gap-4 mb-2">
-                     <div className="relative">
-                         <div className="absolute -top-3 w-8 h-2 rounded-full z-10" style={{ ...eyebrows.left, backgroundColor: getHairColor() }}></div>
-                         <div className="w-8 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner">
-                            <div 
-                                className="w-4 h-4 rounded-full transition-transform duration-75"
-                                style={{ 
-                                    backgroundColor: getEyeColor(),
-                                    transform: `translate(${headPos.x * 0.4}px, ${headPos.y * 0.4}px)` 
-                                }}
-                            >
-                                <div className="w-1.5 h-1.5 bg-black rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
-                                <div className="w-1 h-1 bg-white rounded-full absolute top-1 left-1 opacity-60"></div>
-                            </div>
-                         </div>
-                     </div>
-                     <div className="relative">
-                         <div className="absolute -top-3 w-8 h-2 rounded-full z-10" style={{ ...eyebrows.right, backgroundColor: getHairColor() }}></div>
-                         <div className="w-8 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner">
-                            <div 
-                                className="w-4 h-4 rounded-full transition-transform duration-75"
-                                style={{ 
-                                    backgroundColor: getEyeColor(),
-                                    transform: `translate(${headPos.x * 0.4}px, ${headPos.y * 0.4}px)` 
-                                }}
-                            >
-                                <div className="w-1.5 h-1.5 bg-black rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
-                                <div className="w-1 h-1 bg-white rounded-full absolute top-1 left-1 opacity-60"></div>
-                            </div>
-                         </div>
-                     </div>
-                 </div>
-                 
-                 {/* Nose */}
+                 <RenderEyes />
                  <div className="w-2 h-2 rounded-full bg-black/10 mb-1"></div>
-
-                 {/* Mouth */}
-                 <div style={mouthStyle}></div>
+                 <div style={getMouthStyle()}></div>
             </div>
         </div>
         
-        {/* Accessories Layer */}
         <RenderAccessories />
     </div>
+  );
+
+  const RenderRobot = () => (
+      <div className={`relative transition-all duration-300 ${getRobotColor()} ${config.baseId === 'robot_round' ? 'rounded-full' : config.baseId === 'robot_square' ? 'rounded-3xl' : 'rounded-[2.5rem]'} w-36 h-36 border-4 border-white flex flex-col items-center justify-center shadow-lg`}>
+          <RenderEyes />
+          <div style={getMouthStyle()}></div>
+          <RenderAccessories />
+      </div>
   );
 
   return (
@@ -406,20 +441,19 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       <div className="flex justify-between items-center z-10 px-1 shrink-0">
         <h3 className="text-sm font-bold text-sky-800 flex items-center gap-2">
             My Avatar
-            {isCameraOn && <span className="flex h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>}
+            {isCameraOn && !modelLoading && <span className="flex h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>}
         </h3>
         <button 
             onClick={() => setIsCameraOn(!isCameraOn)}
             className={`p-2 rounded-full transition-colors ${isCameraOn ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-400'}`}
             title={isCameraOn ? "Stop Mirroring" : "Start Mirroring"}
         >
-            {isCameraOn ? <Video size={18} /> : <VideoOff size={18} />}
+            {modelLoading ? <Loader2 size={18} className="animate-spin" /> : isCameraOn ? <Video size={18} /> : <VideoOff size={18} />}
         </button>
       </div>
 
-      {/* Hidden processing elements */}
-      <video ref={videoRef} muted playsInline className="hidden" width={DOWNSAMPLE_SIZE} height={DOWNSAMPLE_SIZE} />
-      <canvas ref={canvasRef} width={DOWNSAMPLE_SIZE} height={DOWNSAMPLE_SIZE} className="hidden" />
+      {/* Video is processed in background, not shown directly (Privacy) */}
+      <video ref={videoRef} autoPlay playsInline muted className="absolute opacity-0 pointer-events-none w-1 h-1" />
 
       {/* Main Visual Stage */}
       <div className="relative flex-1 min-h-[200px] bg-slate-900 rounded-2xl overflow-hidden shadow-inner group w-full mx-auto flex items-center justify-center">
@@ -433,7 +467,7 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
              <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-6 text-center z-0">
                 <VideoOff size={32} className="mb-2 opacity-50" />
                 <span className="text-xs font-bold">Camera Off</span>
-                <span className="text-[10px] mt-1">Turn on to control avatar</span>
+                <span className="text-[10px] mt-1">Avatar uses simulated emotions</span>
              </div>
         )}
 
@@ -441,6 +475,13 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
             <div className="absolute top-4 right-4 z-40 bg-white/90 backdrop-blur text-indigo-900 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2 animate-bounce">
                 <BrainCircuit size={12} className="text-indigo-500" />
                 Speaking...
+            </div>
+        )}
+
+        {/* Detection Debug / Status */}
+        {isCameraOn && (
+            <div className="absolute top-4 left-4 z-0 text-[10px] text-white/50 font-mono">
+                {currentEmotion !== 'neutral' ? currentEmotion.toUpperCase() : ''}
             </div>
         )}
 
@@ -457,11 +498,11 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
              </div>
         )}
 
-        {/* The Avatar Container (Moves with Head) */}
+        {/* The Avatar Container */}
         <div 
-            className="absolute z-20 pointer-events-none transition-transform duration-100 ease-out flex items-center justify-center"
+            className="absolute z-20 pointer-events-none transition-transform duration-75 ease-out flex items-center justify-center"
             style={{ 
-                transform: `translate(${headPos.x}px, ${headPos.y}px) scale(${isCameraOn ? 1 : 0.95})`,
+                transform: `translate(${activeHeadX}px, ${activeHeadY}px) rotate(${activeTilt}deg) scale(${isCameraOn ? 1 : 0.95})`,
             }}
         >
             {config.style === 'human' ? <RenderHuman /> : <RenderRobot />}
@@ -494,18 +535,22 @@ const AvatarInterface: React.FC<AvatarInterfaceProps> = ({ config = DEFAULT_AVAT
       </div>
       
       <p className="text-center text-slate-500 text-xs shrink-0">
-        {!isCameraOn ? "Enable camera to animate your avatar!" : 
-         isLive ? "Ask CodeBot a question..." : "You are in Mirror Mode. Practice speaking!"}
+         {modelLoading ? "Initializing Vision Engine..." : 
+          !isCameraOn ? "Turn on camera to control avatar expression" : 
+          "Processing on-device. Privacy protected."}
       </p>
 
-      {/* Style block for blink animation and hair clips */}
+      {/* Style block for hair clips */}
       <style>{`
-        @keyframes blink {
-            0%, 48%, 52%, 100% { opacity: 0; }
-            50% { opacity: 1; }
-        }
         .clip-path-bangs {
             clip-path: polygon(0 0, 100% 0, 100% 60%, 70% 80%, 30% 80%, 0 60%);
+        }
+        @keyframes bounce-slow {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+        .animate-bounce-slow {
+            animation: bounce-slow 2s infinite ease-in-out;
         }
       `}</style>
     </div>

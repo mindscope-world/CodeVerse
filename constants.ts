@@ -140,6 +140,18 @@ export const BLOCK_DEFINITIONS: BlockDefinition[] = [
     ]
   },
   { 
+    type: 'repeat_until', 
+    category: 'control', 
+    label: 'Repeat Until', 
+    color: 'bg-orange-600', 
+    hasChildren: true, 
+    inputs: [
+        { name: 'condition_var', type: 'variable', label: 'Var', defaultValue: 'score' },
+        { name: 'operator', type: 'select', label: 'is', options: ['>', '<', '==', '!='], defaultValue: '==' },
+        { name: 'value', type: 'number', label: 'Value', defaultValue: 10 }
+    ]
+  },
+  { 
     type: 'if', 
     category: 'control', 
     label: 'If', 

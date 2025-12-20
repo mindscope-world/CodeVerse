@@ -1,9 +1,22 @@
+
 import { BlockInstance, RuntimeState } from '../types';
+
+interface StackFrame {
+  blockIndex: number;
+  children: BlockInstance[];
+  loopCounter?: number;
+  maxLoops?: number;
+  untilCondition?: {
+    var: string;
+    op: string;
+    val: number;
+  };
+}
 
 export class LogicEngine {
   private program: BlockInstance[];
   private state: RuntimeState;
-  private stack: { blockIndex: number; children: BlockInstance[]; loopCounter?: number; maxLoops?: number }[];
+  private stack: StackFrame[];
   
   constructor(program: BlockInstance[]) {
     this.program = program;
@@ -34,6 +47,16 @@ export class LogicEngine {
     return { ...this.state };
   }
 
+  private evaluateCondition(varName: string, op: string, val: number): boolean {
+    const lhs = this.state.variables[varName] || 0;
+    const rhs = Number(val);
+    if (op === '>') return lhs > rhs;
+    if (op === '<') return lhs < rhs;
+    if (op === '==') return lhs == rhs;
+    if (op === '!=') return lhs != rhs;
+    return false;
+  }
+
   step(): RuntimeState {
     if (this.state.isFinished || this.state.error) return { ...this.state };
     this.state.isRunning = true;
@@ -43,13 +66,23 @@ export class LogicEngine {
     
     // Handle end of block list in current frame (pop stack or loop)
     while (currentFrame && currentFrame.blockIndex >= currentFrame.children.length) {
-      // If it's a loop frame, check if we should repeat
+      // 1. Handle Fixed Loop (Repeat X times)
       if (typeof currentFrame.maxLoops === 'number' && typeof currentFrame.loopCounter === 'number') {
         currentFrame.loopCounter++;
         if (currentFrame.loopCounter < currentFrame.maxLoops) {
-          // Restart loop
           currentFrame.blockIndex = 0;
-          break; // Continue execution in this frame
+          break; 
+        }
+      }
+      
+      // 2. Handle Conditional Loop (Repeat Until)
+      if (currentFrame.untilCondition) {
+        const cond = currentFrame.untilCondition;
+        const isMet = this.evaluateCondition(cond.var, cond.op, cond.val);
+        if (!isMet) {
+          // Reset index to repeat the body
+          currentFrame.blockIndex = 0;
+          break;
         }
       }
       
@@ -79,7 +112,6 @@ export class LogicEngine {
       this.executeBlockLogic(block);
       
       // Advance index for next step. 
-      // Even if we pushed a child frame, we advance the parent index so that when we return (pop), we are at the next instruction.
       currentFrame.blockIndex++;
       
     } catch (e: any) {
@@ -97,7 +129,6 @@ export class LogicEngine {
         break;
       case 'print':
         const msg = block.params.message;
-        // Check if message is a variable
         if (this.state.variables.hasOwnProperty(msg)) {
            this.state.consoleOutput.push(`> ${this.state.variables[msg]}`);
         } else {
@@ -108,7 +139,7 @@ export class LogicEngine {
         this.state.variables[block.params.name] = Number(block.params.value);
         break;
       case 'change_var':
-         if (!this.state.variables[block.params.name]) this.state.variables[block.params.name] = 0;
+         if (this.state.variables[block.params.name] === undefined) this.state.variables[block.params.name] = 0;
          this.state.variables[block.params.name] += Number(block.params.value);
          break;
       case 'wait':
@@ -128,16 +159,30 @@ export class LogicEngine {
             });
         }
         break;
+      case 'repeat_until':
+        if (block.children && block.children.length > 0) {
+            const condVar = block.params.condition_var;
+            const op = block.params.operator;
+            const val = Number(block.params.value);
+            
+            // Check condition before starting
+            const isMet = this.evaluateCondition(condVar, op, val);
+            if (!isMet) {
+                this.stack.push({
+                    blockIndex: 0,
+                    children: block.children,
+                    untilCondition: { var: condVar, op, val }
+                });
+            }
+        }
+        break;
       case 'if':
         if (block.children && block.children.length > 0) {
-            const lhs = this.state.variables[block.params.condition_var] || 0;
-            const rhs = Number(block.params.value);
-            const op = block.params.operator;
-            let condition = false;
-            
-            if (op === '>') condition = lhs > rhs;
-            else if (op === '<') condition = lhs < rhs;
-            else if (op === '==') condition = lhs == rhs;
+            const condition = this.evaluateCondition(
+                block.params.condition_var, 
+                block.params.operator, 
+                Number(block.params.value)
+            );
             
             if (condition) {
                  this.stack.push({
@@ -161,7 +206,7 @@ export class LogicEngine {
             if (b.type === 'set_var' || b.type === 'change_var') {
                 definedVariables.add(b.params.name);
             }
-            if (b.type === 'if') {
+            if (b.type === 'if' || b.type === 'repeat_until') {
                  definedVariables.add(b.params.condition_var);
             }
             if (b.children) findVars(b.children);
@@ -207,6 +252,10 @@ export class LogicEngine {
           break;
         case 'repeat':
           line = `for i in range(${block.params.times}):`;
+          break;
+        case 'repeat_until':
+          // Python equivalent is 'while not condition:'
+          line = `while not (${block.params.condition_var} ${block.params.operator} ${block.params.value}):`;
           break;
         case 'if':
           line = `if ${block.params.condition_var} ${block.params.operator} ${block.params.value}:`;
